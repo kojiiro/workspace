@@ -59,3 +59,6 @@ Read `docs/PROTOTYPE-02.md` for scope and ownership.
 
 ## Prototype 0.2: Hal Jordan leads the Corps
 Hal Jordan is now the primary character, centrally located and selected by default. He and John Stewart both use separate local **mock** chats; this is **not** a live Gemini or ChatGPT API connection. Game-world pointer interactions are ignored while the chat/menu overlay is open. The blocked-switch notice remains until you dismiss it.
+
+## Prototype 0.3 development: Mission Control
+The `feat/mission-control-local-board` branch adds a Mission Board. Missions are saved locally under `data/missions.json` (ignored by Git). Assigned characters are labels for organization, **not automatic AI agents**. Use the regular `npm ci` and `npm run dev` commands, then open Mission Board from the sidebar. See `docs/PROTOTYPE-03.md`.

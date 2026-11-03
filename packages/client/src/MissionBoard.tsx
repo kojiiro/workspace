@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import type { CreateMissionRequest, Mission, MissionStatus, NpcDescriptor, UpdateMissionRequest } from "@glc/shared";
 
 const statusLabels: Record<MissionStatus,string> = {
@@ -41,7 +42,7 @@ export default function MissionBoard({ npcs, onClose }: {
     return ()=>{active=false;};
   },[]);
 
-  async function createMission(event: React.FormEvent<HTMLFormElement>) {
+  async function createMission(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if(!title.trim() || saving)return;
     setSaving(true);setError("");
