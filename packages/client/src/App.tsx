@@ -15,6 +15,7 @@ function App() {
   const world = useRef<HTMLDivElement>(null);
   const [npcs, setNpcs] = useState<NpcDescriptor[]>([]);
   const [selectedId, setSelectedId] = useState("john");
+  const selectedIdRef = useRef("john");
   const npc = npcs.find(item => item.id === selectedId) ?? null;
   const [menu, setMenu] = useState(false);
   const [chat, setChat] = useState(false);
@@ -147,7 +148,7 @@ function App() {
       return;
     }
     if (!npcs.some(item => item.id === id)) return;
-    if (selectedId !== id) {
+    if (selectedIdRef.current !== id) {
       // Each NPC owns its own conversation. Until multi-conversation storage is
       // implemented, selecting another character resets the local chat view.
       setMessages([]);
@@ -156,6 +157,7 @@ function App() {
       setError("");
       setStream("");
     }
+    selectedIdRef.current = id;
     setSelectedId(id);
     setChat(false);
     setMenu(true);
@@ -164,21 +166,7 @@ function App() {
   useEffect(() => {
     const node = world.current;
     if (!node || npcs.length === 0) return;
-    return mountHeadquarters(node, npcs, id => {
-      if (activeRunRef.current || awaitingAckRef.current) return;
-      setSelectedId(previous => {
-        if (previous !== id) {
-          setMessages([]);
-          setConversationId(undefined);
-          setText("");
-          setError("");
-          setStream("");
-        }
-        return id;
-      });
-      setChat(false);
-      setMenu(true);
-    });
+    return mountHeadquarters(node, npcs, id => selectNpc(id));
   }, [npcs]);
 
   useEffect(() => () => { clearWatchdog(); }, []);
@@ -295,7 +283,7 @@ function App() {
               Its presence and animation are simulated locally without API calls.
             </div>}
           </div>}
-          {chat&&npc?.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" aria-label={npc.displayName + " chat"}>
+          {chat&&npc&&npc.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" aria-label={npc.displayName + " chat"}>
             <div className="chat-header"><span className="avatar">JS</span><div><strong>{npc.displayName}</strong><small>MOCK AI · NO API KEY REQUIRED</small></div><button className="icon-button" aria-label="Close chat" onClick={()=>setChat(false)}>×</button></div>
             <div className="chat-body" aria-live="polite">
               {messages.length===0&&<div className="welcome"><div className="welcome-symbol">◉</div><h3>Lantern, your orders?</h3><p>I'm ready for a test mission. This is a local mock response, not ChatGPT.</p></div>}
