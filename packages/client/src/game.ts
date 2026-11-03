@@ -91,6 +91,8 @@ function workstation(scene:Phaser.Scene, u:number,v:number,accent:number,label:s
   const name=scene.add.text(p.x,p.y-51,label.toUpperCase(),{
     fontFamily:"Arial",fontSize:"9px",fontStyle:"bold",color:"#b1e8ce"
   }).setOrigin(.5);
+  g.setDepth(p.y-1);
+  name.setDepth(p.y);
   name.setAlpha(.7);
   scene.tweens.add({targets:g,alpha:{from:.75,to:1},duration:1500,yoyo:true,repeat:-1});
 }
@@ -101,7 +103,7 @@ function createCharacter(scene:Phaser.Scene,npc:NpcDescriptor,onSelect:(id:NpcId
     skin:0xb38c7b,hair:0x232426,hairStyle:"short" as const
   };
   const start=iso(visual.u,visual.v);
-  const root=scene.add.container(start.x,start.y);
+  const root=scene.add.container(start.x,start.y).setDepth(start.y);
   const figure=scene.add.container(0,0);
   const pen=scene.add.graphics();
 
@@ -171,6 +173,7 @@ function createCharacter(scene:Phaser.Scene,npc:NpcDescriptor,onSelect:(id:NpcId
     scene.tweens.add({
       targets:root,x:start.x+dx,y:start.y+(index%3-1)*4,
       duration:1700+index*130,ease:"Sine.easeInOut",
+      onUpdate:()=>root.setDepth(root.y),
       yoyo:true,hold:1200+index*320,
       onComplete:()=>{
         if(scene.scene.isActive()) scene.time.delayedCall(1500+index*250,move);
@@ -178,6 +181,19 @@ function createCharacter(scene:Phaser.Scene,npc:NpcDescriptor,onSelect:(id:NpcId
     });
   };
   scene.time.delayedCall(1400+index*480,move);
+
+  return (updated:NpcDescriptor) => {
+    const ready=updated.status==="ready";
+    state.setText(ready?"● ONLINE":"◌ "+updated.status.toUpperCase().replace("-", " "));
+    state.setColor(ready?"#8bffc1":"#b3bda8");
+    halo.setAlpha(ready?1:.35);
+    caption.setText(updated.displayName.toUpperCase());
+  };
+}
+
+export interface HeadquartersBridge {
+  updateNpcs(next: NpcDescriptor[]): void;
+  destroy(): void;
 }
 
 export function mountHeadquarters(
@@ -187,6 +203,20 @@ export function mountHeadquarters(
 ) {
   let dragStartedOnNpc=false;
   let releasePointer: (()=>void)|undefined;
+  let sceneInstance: Phaser.Scene | undefined;
+  let currentNpcs = npcs;
+  const actors = new Map<NpcId,(next:NpcDescriptor)=>void>();
+  const synchronize = () => {
+    if (!sceneInstance) return;
+    currentNpcs.forEach((npc,index)=>{
+      const update = actors.get(npc.id);
+      if (update) update(npc);
+      else actors.set(npc.id,createCharacter(sceneInstance!,npc,id=>{
+        dragStartedOnNpc=true;
+        onSelect(id);
+      },index));
+    });
+  };
   class Headquarters extends Phaser.Scene {
     constructor(){super("headquarters");}
     create(){
@@ -196,14 +226,11 @@ export function mountHeadquarters(
       workstation(this,1.8,5.7,0x52e5c9,"Design");
       workstation(this,6.1,5.6,0x88d58c,"Operations");
 
-      npcs.forEach((npc,index)=>createCharacter(this,npc,id=>{
-        dragStartedOnNpc=true;
-        onSelect(id);
-      },index));
+      sceneInstance=this;
+      synchronize();
 
       this.cameras.main.setBounds(-180,-120,1350,980);
       this.cameras.main.setZoom(1);
-      this.input.keyboard?.disableGlobalCapture();
       const cursor=this.input.keyboard?.createCursorKeys();
       const keys=this.input.keyboard?.addKeys("W,A,S,D") as Record<string,Phaser.Input.Keyboard.Key>|undefined;
       this.input.keyboard?.disableGlobalCapture();
@@ -238,8 +265,16 @@ export function mountHeadquarters(
     render:{pixelArt:false,antialias:true},
     scene:[Headquarters],audio:{noAudio:true}
   });
-  return ()=>{
-    if(releasePointer)window.removeEventListener("pointerup",releasePointer);
-    game.destroy(true);
-  };
+  return {
+    updateNpcs(next:NpcDescriptor[]) {
+      currentNpcs=next;
+      synchronize();
+    },
+    destroy() {
+      if(releasePointer)window.removeEventListener("pointerup",releasePointer);
+      actors.clear();
+      sceneInstance=undefined;
+      game.destroy(true);
+    }
+  } satisfies HeadquartersBridge;
 }
