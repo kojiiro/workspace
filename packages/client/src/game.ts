@@ -94,7 +94,11 @@ export function mountHeadquarters(element: HTMLElement, onSelect: (id: string) =
       });
       const cursors=this.input.keyboard?.createCursorKeys();
       const keys=this.input.keyboard?.addKeys("W,A,S,D") as Record<string,Phaser.Input.Keyboard.Key>|undefined;
+      // Phaser captures keys globally by default, including keys typed in React forms.
+      this.input.keyboard?.disableGlobalCapture();
       this.events.on("update",(_time:number,delta:number)=>{
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && (focused.matches("input, textarea, select") || focused.isContentEditable)) return;
         const camera=this.cameras.main; const movement=delta*.5/camera.zoom;
         if(cursors?.left.isDown||keys?.A?.isDown)camera.scrollX-=movement;
         if(cursors?.right.isDown||keys?.D?.isDown)camera.scrollX+=movement;
@@ -107,7 +111,9 @@ export function mountHeadquarters(element: HTMLElement, onSelect: (id: string) =
           this.cameras.main.scrollY -= (pointer.y-pointer.prevPosition.y)/this.cameras.main.zoom;
         }
       });
-      this.input.on("pointerup",()=>{selected=false;});
+      const resetDrag = () => { selected = false; };
+      window.addEventListener("pointerup", resetDrag);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => window.removeEventListener("pointerup", resetDrag));
     }
   }
   const game = new Phaser.Game({

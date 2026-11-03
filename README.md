@@ -1,6 +1,6 @@
 # Green Lantern Corps — AI Workspace
 
-An A2 (Headquarters Commander) isometric workspace prototype. Click an NPC, open a menu, and chat through a local gateway. The first release has **no paid APIs** and does not send messages to WhatsApp or Discord.
+An A2 (Headquarters Commander) isometric workspace prototype. The next art milestone is **Option A: detailed Sims-like 2.5D**, with original artwork rather than pixel art. Click an NPC, open a menu, and chat through a local gateway. The first release has **no paid APIs** and does not send messages to WhatsApp or Discord.
 
 ## Requirements
 - Windows 11, macOS, or Linux
@@ -35,3 +35,12 @@ Real ChatGPT/Gemini/Claude connections, Discord, WhatsApp, persistence after gat
 
 ## Security and collaboration
 The gateway binds to `127.0.0.1`. It rejects untrusted browser origins and validates requests. Never commit API keys, session cookies, Discord tokens, or personal messages. Keep work on feature branches and review PRs before merging.
+
+## Browser smoke test before merging
+1. Click John Stewart, open his chat, and type `wasd WASD arrows`; every character should enter the text box without panning the camera.
+2. Send `hello` and verify that text streams into the chat panel.
+3. Send `/fail` and confirm a friendly rate-limit error; you should be able to retry without a broken history.
+4. Cancel a long reply; sending a new message should work.
+5. Disconnect the gateway briefly and reconnect; the SSE connection should recover.
+
+Run `npm test` for the gateway safety/concurrency tests.

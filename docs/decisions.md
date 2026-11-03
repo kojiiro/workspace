@@ -17,3 +17,9 @@ Use mock responses and generated placeholder visuals in v0.1. No API keys, paid 
 
 ## D-006 — 2026-11-03
 Keep all changes in a feature branch and request review via pull request. Do not write to main until reviewed.
+
+## D-007 — 2026-11-04
+Choose visual direction A: detailed, Sims-like 2.5D (not pixel art), while retaining A2 Commander gameplay. Prioritize functionality and original art during phase 0.2.
+
+## D-008 — 2026-11-04
+Apply the five merge-blocking findings from Claude's independent PR #1 review: keyboard capture, conversation transaction correctness, persistent SSE with replay-on-reconnect, Host allowlist, reproducible lockfile/CI. Keep PR in review until tests and manual keyboard check pass.

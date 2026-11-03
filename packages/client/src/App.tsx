@@ -13,17 +13,19 @@ const NPC_PLACEHOLDERS = [
 type UIMessage = Pick<ChatMessage, "role" | "content">;
 function errorText(body: unknown): string {
   if (body && typeof body === "object" && "error" in body) {
-    const err = (body as {error?: GatewayError}).error;
+    const err = (body as { error?: GatewayError }).error;
     if (err?.message) return err.message;
   }
   return "The local gateway could not complete this request.";
 }
+
 function App() {
   const world = useRef<HTMLDivElement>(null);
   const [npc, setNpc] = useState<NpcDescriptor | null>(null);
+  const npcRef = useRef<NpcDescriptor | null>(null);
   const [menu, setMenu] = useState(false);
   const [chat, setChat] = useState(false);
-  const [status, setStatus] = useState<"connecting"|"online"|"offline">("connecting");
+  const [status, setStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [stream, setStream] = useState("");
@@ -31,72 +33,184 @@ function App() {
   const [conversationId, setConversationId] = useState<string>();
   const [runId, setRunId] = useState<string>();
   const [error, setError] = useState("");
-  const currentStream = useRef("");
+
+  // A single EventSource is maintained for the lifetime of the component.
+  // Events can arrive before POST /api/chat returns its runId: buffer those.
   const eventSource = useRef<EventSource | null>(null);
+  const activeRunRef = useRef<string | null>(null);
+  const awaitingAckRef = useRef(false);
+  const bufferedRef = useRef<Map<string, EventEnvelope[]>>(new Map());
+  const currentStream = useRef("");
+  const submittedText = useRef("");
+  const timerRef = useRef<number | null>(null);
+  const failRef = useRef<(reason: string) => void>(() => {});
+  const handleEventRef = useRef<(envelope: EventEnvelope) => void>(() => {});
+
+  function clearWatchdog() {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+
+  function failCurrent(reason: string) {
+    if (!activeRunRef.current && !awaitingAckRef.current) return;
+    clearWatchdog();
+    // A failed message was never committed to server history, so remove
+    // the optimistic user bubble and restore the text for retry.
+    const attempted = submittedText.current;
+    setMessages(previous => {
+      const last = previous.at(-1);
+      return last?.role === "user" && last.content === attempted ? previous.slice(0, -1) : previous;
+    });
+    setText(previous => previous || attempted);
+    currentStream.current = "";
+    bufferedRef.current.clear();
+    awaitingAckRef.current = false;
+    activeRunRef.current = null;
+    setStream("");
+    setBusy(false);
+    setRunId(undefined);
+    setError(reason);
+  }
+  failRef.current = failCurrent;
+
+  function applyEvent(envelope: EventEnvelope) {
+    const ev = envelope.event;
+    if (ev.type === "npc.status") {
+      setNpc(previous => previous?.id === ev.npcId ? { ...previous, status: ev.status } : previous);
+      return;
+    }
+    if (!("runId" in ev)) return;
+    if (ev.runId !== activeRunRef.current) {
+      if (awaitingAckRef.current) {
+        const batch = bufferedRef.current.get(ev.runId) ?? [];
+        if (batch.length < 300) batch.push(envelope);
+        bufferedRef.current.set(ev.runId, batch);
+      }
+      return;
+    }
+    if (ev.type === "run.delta") {
+      currentStream.current += ev.text;
+      setStream(currentStream.current);
+    } else if (ev.type === "run.completed") {
+      const answer = currentStream.current;
+      setMessages(previous => [...previous, { role: "assistant", content: answer || "(empty response)" }]);
+      currentStream.current = "";
+      bufferedRef.current.clear();
+      activeRunRef.current = null;
+      clearWatchdog();
+      setStream("");
+      setRunId(undefined);
+      setBusy(false);
+      setError("");
+    } else if (ev.type === "run.failed" || ev.type === "run.cancelled") {
+      failCurrent(ev.type === "run.failed" ? ev.error.message : "Mission cancelled.");
+    }
+  }
+  handleEventRef.current = applyEvent;
 
   useEffect(() => {
-    let alive = true;
-    fetch("/api/health").then(async r=> {
-      if (!r.ok) throw new Error("Gateway unavailable");
-      return r.json();
-    }).then(() => { if(alive)setStatus("online"); }).catch(() => { if(alive)setStatus("offline"); });
-    fetch("/api/npcs").then(r=>r.ok?r.json():Promise.reject()).then((list:NpcDescriptor[])=>{
-      if(alive)setNpc(list.find(n=>n.id==="john") ?? null);
-    }).catch(()=>{});
-    return()=>{alive=false;};
-  },[]);
+    let mounted = true;
+    fetch("/api/npcs")
+      .then(response => response.ok ? response.json() : Promise.reject(new Error("NPC registry unavailable")))
+      .then((list: NpcDescriptor[]) => {
+        if (!mounted) return;
+        const found = list.find(n => n.id === "john") ?? null;
+        npcRef.current = found;
+        setNpc(found);
+      })
+      .catch(() => {});
+
+    const events = new EventSource("/api/events");
+    eventSource.current = events;
+    events.onopen = () => {
+      if (!mounted) return;
+      setStatus("online");
+      setError(previous => previous.startsWith("Event stream") ? "" : previous);
+    };
+    events.onmessage = message => {
+      try { handleEventRef.current(JSON.parse(message.data) as EventEnvelope); }
+      catch { /* malformed gateway event is ignored, watchdog handles missing completions */ }
+    };
+    events.onerror = () => {
+      if (!mounted) return;
+      if (events.readyState === EventSource.CLOSED) {
+        setStatus("offline");
+        failRef.current("Event stream closed. Please restart the local gateway.");
+      } else {
+        setStatus("connecting");
+        if (activeRunRef.current) setError("Event stream interrupted. Reconnecting…");
+      }
+    };
+    return () => {
+      mounted = false;
+      events.close();
+      eventSource.current = null;
+    };
+  }, []);
+
   useEffect(() => {
-    const node=world.current;
-    if(!node)return;
-    return mountHeadquarters(node,()=>setMenu(true));
-  },[]);
-  useEffect(()=>()=>eventSource.current?.close(),[]);
+    const node = world.current;
+    if (!node) return;
+    return mountHeadquarters(node, id => {
+      if (npcRef.current?.id === id) setMenu(true);
+    });
+  }, []);
+
+  useEffect(() => () => { clearWatchdog(); }, []);
 
   async function send() {
     const content = text.trim();
-    if(!content || busy || status!=="online")return;
-    setError("");setText("");setMenu(false);
-    setMessages(previous=>[...previous,{role:"user",content}]);setStream("");currentStream.current="";
+    if (!content || busy || status !== "online" || !npc?.capabilities.some(c => c.id === "chat")) return;
+    setError("");
+    setText("");
+    setMenu(false);
+    setMessages(previous => [...previous, { role: "user", content }]);
+    setStream("");
+    currentStream.current = "";
+    submittedText.current = content;
+    bufferedRef.current.clear();
+    awaitingAckRef.current = true;
     setBusy(true);
+    clearWatchdog();
+    timerRef.current = window.setTimeout(() => {
+      if (!awaitingAckRef.current && !activeRunRef.current) return;
+      const active = activeRunRef.current;
+      if (active) void fetch("/api/runs/" + active + "/cancel", { method: "POST" }).catch(() => {});
+      failRef.current("The stream did not complete in time. Please try again.");
+    }, 32_000);
     try {
-      const response = await fetch("/api/chat",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({npcId:"john",conversationId,text:content})
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ npcId: npc.id, conversationId, text: content })
       });
-      const data = await response.json();
-      if(!response.ok)throw new Error(errorText(data));
-      const payload=data as SendChatResponse;
+      const data: unknown = await response.json();
+      if (!response.ok) throw new Error(errorText(data));
+      const payload = data as SendChatResponse;
       setConversationId(payload.conversationId);
+      activeRunRef.current = payload.runId;
+      awaitingAckRef.current = false;
       setRunId(payload.runId);
-      eventSource.current?.close();
-      const events=new EventSource("/api/events");
-      eventSource.current=events;
-      events.onmessage=(incoming)=>{
-        let envelope:EventEnvelope;
-        try { envelope=JSON.parse(incoming.data) as EventEnvelope; }catch{return;}
-        const ev=envelope.event;
-        if(!("runId" in ev)||ev.runId!==payload.runId)return;
-        if(ev.type==="run.delta"){
-          currentStream.current+=ev.text;setStream(currentStream.current);
-        } else if(ev.type==="run.completed") {
-          const answer=currentStream.current;
-          setMessages(prev=>[...prev,{role:"assistant",content:answer||"(empty response)"}]);
-          setStream("");setBusy(false);setRunId(undefined);events.close();
-        } else if(ev.type==="run.failed"||ev.type==="run.cancelled"){
-          setError(ev.type==="run.failed"?ev.error.message:"Mission cancelled.");
-          if(currentStream.current) setMessages(prev=>[...prev,{role:"assistant",content:currentStream.current}]);
-          setStream("");setBusy(false);setRunId(undefined);events.close();
-        }
-      };
-      events.onerror=()=>{setError("Stream interrupted. Reconnecting…");};
-    }catch(reason){
-      setBusy(false);setError(reason instanceof Error?reason.message:"Network error");
+      const queued = bufferedRef.current.get(payload.runId) ?? [];
+      bufferedRef.current.clear();
+      for (const item of queued) applyEvent(item);
+    } catch (reason) {
+      failRef.current(reason instanceof Error ? reason.message : "Network error");
     }
   }
-  async function cancel(){
-    if(!runId)return;
-    try{await fetch(`/api/runs/${runId}/cancel`,{method:"POST"});}catch{setError("Could not reach gateway to cancel.");}
+
+  async function cancel() {
+    if (!runId) return;
+    try {
+      const response = await fetch("/api/runs/" + runId + "/cancel", { method: "POST" });
+      if (!response.ok) setError("Could not cancel the current mission.");
+    } catch {
+      setError("Could not reach gateway to cancel.");
+    }
   }
+
   return <div className="shell">
     <header className="topbar">
       <div className="brand">
