@@ -1,4 +1,5 @@
 import type { ChatProvider, NpcDescriptor, NpcId } from "@glc/shared";
+import { MockChatProvider } from "./adapters/mock.js";
 
 export interface NpcRegistration {
   descriptor: NpcDescriptor;
@@ -11,6 +12,7 @@ export class NpcRegistry {
 
   register(registration: NpcRegistration): void {
     const { id } = registration.descriptor;
+    if (!/^[a-z0-9-]{1,48}$/.test(id)) throw new Error("Invalid NPC ID: " + id);
     if (this.entries.has(id)) throw new Error("Duplicate NPC registration: " + id);
     if (registration.descriptor.capabilities.some(c => c.id === "chat") && !registration.provider) {
       throw new Error("A chat-capable NPC needs a provider: " + id);
@@ -30,23 +32,25 @@ export class NpcRegistry {
   }
 }
 
-export function createDefaultNpcRegistry(johnProvider: ChatProvider): NpcRegistry {
+export function createDefaultNpcRegistry(johnProvider: ChatProvider, halProvider: ChatProvider = new MockChatProvider("Hal Jordan")): NpcRegistry {
   const registry = new NpcRegistry();
 
   const registrations: NpcRegistration[] = [
     {
       descriptor: {
-        id: "john", displayName: "John Stewart", represents: "ChatGPT (mock mode)",
-        adapterId: johnProvider.id, status: "ready",
-        capabilities: [{ id: "chat", label: "Talk to John", risk: "safe" }]
+        id: "hal", displayName: "Hal Jordan", represents: "Gemini (mock mode)",
+        adapterId: halProvider.id, status: "ready",
+        capabilities: halProvider.capabilities.map(capability => ({ ...capability }))
       },
-      provider: johnProvider
+      provider: halProvider
     },
     {
       descriptor: {
-        id: "hal", displayName: "Hal Jordan", represents: "Gemini",
-        adapterId: "gemini", status: "unconfigured", capabilities: []
-      }
+        id: "john", displayName: "John Stewart", represents: "ChatGPT (mock mode)",
+        adapterId: johnProvider.id, status: "ready",
+        capabilities: johnProvider.capabilities.map(capability => ({ ...capability }))
+      },
+      provider: johnProvider
     },
     {
       descriptor: {

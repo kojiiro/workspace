@@ -4,8 +4,8 @@ import type { NpcDescriptor, NpcId } from "@glc/shared";
 type Visual = { u: number; v: number; suit: number; trim: number; skin: number; hair: number; hairStyle: "short"|"side"|"curly"|"flat"; stature?: number };
 
 const visuals: Record<string, Visual> = {
-  john:    { u: 3.55, v: 3.7, suit: 0x13794b, trim: 0x8effb9, skin: 0x855a43, hair: 0x141d1c, hairStyle: "short" },
-  hal:     { u: 5.85, v: 1.6, suit: 0x188c57, trim: 0xb1ffd6, skin: 0xc38b69, hair: 0x3a241a, hairStyle: "side" },
+  john:    { u: 5.85, v: 1.6, suit: 0x13794b, trim: 0x8effb9, skin: 0x855a43, hair: 0x141d1c, hairStyle: "short" },
+  hal:     { u: 3.55, v: 3.7, suit: 0x188c57, trim: 0xb1ffd6, skin: 0xc38b69, hair: 0x3a241a, hairStyle: "side" },
   kyle:    { u: 2.2, v: 5.25, suit: 0x247659, trim: 0x9ef8d2, skin: 0xab785a, hair: 0x171d22, hairStyle: "curly" },
   guy:     { u: 6.1, v: 6.0, suit: 0x41844a, trim: 0xf2ee9c, skin: 0xcb936b, hair: 0x9c3b1e, hairStyle: "flat" },
   sinestro:{ u: 1.1, v: 1.45, suit: 0x736421, trim: 0xffdf76, skin: 0xad667a, hair: 0x16171d, hairStyle: "short" },
@@ -138,11 +138,11 @@ function createCharacter(scene:Phaser.Scene,npc:NpcDescriptor,onSelect:(id:NpcId
   root.add(figure);
 
   const halo=scene.add.graphics();
-  halo.lineStyle(2, visual.trim, npc.status==="ready"?.82:.25);
-  halo.strokeEllipse(0,0,58,23);
+  halo.lineStyle(npc.id==="hal"?3:2, visual.trim, npc.status==="ready"?.82:.25);
+  halo.strokeEllipse(0,0,npc.id==="hal"?78:58,npc.id==="hal"?31:23);
   root.addAt(halo,0);
 
-  const caption=scene.add.text(0,-123*scale,npc.displayName.toUpperCase(),{
+  const caption=scene.add.text(0,-123*scale,(npc.id==="hal"?"★ ":"")+npc.displayName.toUpperCase(),{
     fontFamily:"Arial",fontSize:"10px",fontStyle:"bold",color:"#e5ffee",
     backgroundColor:"#082725e6",padding:{x:6,y:4}
   }).setOrigin(.5);
@@ -187,11 +187,12 @@ function createCharacter(scene:Phaser.Scene,npc:NpcDescriptor,onSelect:(id:NpcId
     state.setText(ready?"● ONLINE":"◌ "+updated.status.toUpperCase().replace("-", " "));
     state.setColor(ready?"#8bffc1":"#b3bda8");
     halo.setAlpha(ready?1:.35);
-    caption.setText(updated.displayName.toUpperCase());
+    caption.setText((updated.id==="hal"?"★ ":"")+updated.displayName.toUpperCase());
   };
 }
 
 export interface HeadquartersBridge {
+  setUiBlocked(blocked:boolean): void;
   updateNpcs(next: NpcDescriptor[]): void;
   destroy(): void;
 }
@@ -202,6 +203,7 @@ export function mountHeadquarters(
   onSelect: (id:NpcId)=>void
 ) {
   let dragStartedOnNpc=false;
+  let uiBlocked=false;
   let releasePointer: (()=>void)|undefined;
   let sceneInstance: Phaser.Scene | undefined;
   let currentNpcs = npcs;
@@ -212,6 +214,7 @@ export function mountHeadquarters(
       const update = actors.get(npc.id);
       if (update) update(npc);
       else actors.set(npc.id,createCharacter(sceneInstance!,npc,id=>{
+        if (uiBlocked) return;
         dragStartedOnNpc=true;
         onSelect(id);
       },index));
@@ -245,11 +248,12 @@ export function mountHeadquarters(
         if(cursor?.down.isDown||keys?.S?.isDown)cam.scrollY+=speed;
       });
       this.input.on("wheel",(_p:Phaser.Input.Pointer,_objs:unknown,_dx:number,dy:number)=>{
+        if (uiBlocked) return;
         const cam=this.cameras.main;
         cam.setZoom(Phaser.Math.Clamp(cam.zoom+(dy>0?-.07:.07),.65,1.5));
       });
       this.input.on("pointermove",(p:Phaser.Input.Pointer)=>{
-        if(p.isDown&&!dragStartedOnNpc&&p.downElement===this.game.canvas){
+        if(!uiBlocked&&p.isDown&&!dragStartedOnNpc&&p.downElement===this.game.canvas){
           this.cameras.main.scrollX-=(p.x-p.prevPosition.x)/this.cameras.main.zoom;
           this.cameras.main.scrollY-=(p.y-p.prevPosition.y)/this.cameras.main.zoom;
         }
@@ -266,6 +270,7 @@ export function mountHeadquarters(
     scene:[Headquarters],audio:{noAudio:true}
   });
   return {
+    setUiBlocked(blocked:boolean) { uiBlocked=blocked; },
     updateNpcs(next:NpcDescriptor[]) {
       currentNpcs=next;
       synchronize();

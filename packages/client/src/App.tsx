@@ -17,8 +17,8 @@ function App() {
   const worldBridge = useRef<HeadquartersBridge | null>(null);
   const selectNpcRef = useRef<(id:string)=>void>(()=>{});
   const [npcs, setNpcs] = useState<NpcDescriptor[]>([]);
-  const [selectedId, setSelectedId] = useState("john");
-  const selectedIdRef = useRef("john");
+  const [selectedId, setSelectedId] = useState("hal");
+  const selectedIdRef = useRef("hal");
   const npc = npcs.find(item => item.id === selectedId) ?? null;
   const [menu, setMenu] = useState(false);
   const [chat, setChat] = useState(false);
@@ -30,6 +30,10 @@ function App() {
   const [conversationId, setConversationId] = useState<string>();
   const [runId, setRunId] = useState<string>();
   const [error, setError] = useState("");
+  // World notices are independent of chat errors: a completed mock run should
+  // not make an active-interaction warning disappear after a split second.
+  const [notice, setNotice] = useState("");
+  const sessions = useRef<Record<string,{messages:UIMessage[];conversationId?:string;text:string}>>({});
 
   // A single EventSource is maintained for the lifetime of the component.
   // Events can arrive before POST /api/chat returns its runId: buffer those.
@@ -147,19 +151,21 @@ function App() {
 
   function selectNpc(id: string) {
     if (activeRunRef.current || awaitingAckRef.current) {
-      setError("Finish or cancel the current mission before changing personnel.");
+      setNotice("A Lantern is still responding. Finish or cancel that conversation before switching characters.");
       return;
     }
     if (!npcs.some(item => item.id === id)) return;
     if (selectedIdRef.current !== id) {
-      // Each NPC owns its own conversation. Until multi-conversation storage is
-      // implemented, selecting another character resets the local chat view.
-      setMessages([]);
-      setConversationId(undefined);
-      setText("");
+      // Retain each NPC's mock conversation while switching between characters.
+      sessions.current[selectedIdRef.current] = { messages, conversationId, text };
+      const existing = sessions.current[id];
+      setMessages(existing?.messages ?? []);
+      setConversationId(existing?.conversationId);
+      setText(existing?.text ?? "");
       setError("");
       setStream("");
     }
+    setNotice("");
     selectedIdRef.current = id;
     setSelectedId(id);
     setChat(false);
@@ -175,6 +181,7 @@ function App() {
     if (!node || !isRegistryReady) return;
     const bridge=mountHeadquarters(node, npcs, id=>selectNpcRef.current(id));
     worldBridge.current=bridge;
+    bridge.setUiBlocked(menu || chat);
     return () => {
       worldBridge.current=null;
       bridge.destroy();
@@ -184,6 +191,9 @@ function App() {
   useEffect(() => {
     worldBridge.current?.updateNpcs(npcs);
   }, [npcs]);
+  useEffect(() => {
+    worldBridge.current?.setUiBlocked(menu || chat);
+  }, [menu, chat]);
 
   useEffect(() => () => { clearWatchdog(); }, []);
 
@@ -280,15 +290,18 @@ function App() {
         <div className="sidebar-bottom"><div className="callout"><b>TRAINING SIMULATION</b><p>Mock chat remains local. External AI and messaging integrations are not enabled.</p></div></div>
       </aside>
       <main className="main">
-        <div className="world-head"><div><div className="eyebrow">SECTOR 2814 / OA</div><h1>Command Hall</h1><p>Your Corps is standing by for assignments.</p></div><span className="world-badge">● HEADQUARTERS ACTIVE</span></div>
+        <div className="world-head"><div><div className="eyebrow">SECTOR 2814 / OA · HAL JORDAN — CORPS LEAD</div><h1>Command Hall</h1><p>Hal Jordan leads the Corps. Assign a mission to any available Lantern.</p></div><span className="world-badge">● HEADQUARTERS ACTIVE</span></div>
         <div className="world-frame">
           <div ref={world} className="phaser-stage" aria-label="Isometric Green Lantern headquarters. Click any character to open their menu."/>
           <div className="hud-left"><span className="hud-light"/> LIVE WORLD <span className="separator">/</span> {npcs.length} REGISTERED PERSONNEL</div>
           <div className="hud-right">SCROLL TO ZOOM · DRAG TO PAN · CLICK AN NPC</div>
-          {error&&!chat&&<div className="world-notice" role="alert">
-            <span>{error}</span><button type="button" onClick={()=>setError("")} aria-label="Dismiss notification">×</button>
+          {notice&&<div className="world-notice" role="alert" onPointerDownCapture={event=>event.stopPropagation()}>
+            <span>{notice}</span><button type="button" onClick={()=>setNotice("")} aria-label="Dismiss notification">×</button>
           </div>}
-          {menu&&!chat&&npc&&<div className="npc-menu">
+          {error&&!chat&&<div className="world-notice world-notice-error" role="alert">
+            <span>{error}</span><button type="button" onClick={()=>setError("")} aria-label="Dismiss error">×</button>
+          </div>}
+          {menu&&!chat&&npc&&<div className="npc-menu" onPointerDownCapture={event=>event.stopPropagation()} onClickCapture={event=>event.stopPropagation()}>
             <div className="menu-header"><div><small>GREEN LANTERN / AI REPRESENTATIVE</small><h2>{npc.displayName}</h2><p>{npc.represents} · {npc.status === "ready" ? "Available" : "Not configured"}</p></div><button className="icon-button" aria-label="Close interaction menu" onClick={()=>setMenu(false)}>×</button></div>
             {npc.capabilities.map(cap => cap.id === "chat" ? (
               <button className="action" key={cap.id} onClick={()=>{setChat(true);setMenu(false);}}>
@@ -302,7 +315,7 @@ function App() {
               Its presence and animation are simulated locally without API calls.
             </div>}
           </div>}
-          {chat&&npc&&npc.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" aria-label={npc.displayName + " chat"}>
+          {chat&&npc&&npc.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" onPointerDownCapture={event=>event.stopPropagation()} onClickCapture={event=>event.stopPropagation()} aria-label={npc.displayName + " chat"}>
             <div className="chat-header"><span className="avatar">{npc.displayName.split(" ").map(part=>part[0]).join("").slice(0,2)}</span><div><strong>{npc.displayName}</strong><small>{npc.adapterId==="mock"?"MOCK AI · NO API KEY REQUIRED":npc.represents.toUpperCase()}</small></div><button className="icon-button" aria-label="Close chat" onClick={()=>setChat(false)}>×</button></div>
             <div className="chat-body" aria-live="polite">
               {messages.length===0&&<div className="welcome"><div className="welcome-symbol">◉</div><h3>Lantern, your orders?</h3><p>{npc.adapterId==="mock"?"I'm ready for a test mission. This is a local mock response, not a live AI.":"This NPC connects through its configured AI provider."}</p></div>}
@@ -317,7 +330,7 @@ function App() {
             </form>
           </section>}
         </div>
-        <div className="underworld"><div><b>01 / COMMAND HALL</b><span>{npcs.length} characters registered · Only John Stewart has mock chat enabled.</span></div><button onClick={()=>selectNpc("john")}>INTERACT WITH JOHN ↗</button></div>
+        <div className="underworld"><div><b>01 / COMMAND HALL</b><span>{npcs.length} characters registered · Hal and John offer free local mock chat.</span></div><button onClick={()=>selectNpc("hal")}>INTERACT WITH HAL ↗</button></div>
       </main>
     </div>
   </div>;

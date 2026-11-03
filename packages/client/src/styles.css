@@ -12,3 +12,8 @@
 .world-notice{position:absolute;left:18px;bottom:58px;z-index:7;max-width:min(440px,calc(100% - 36px));display:flex;align-items:flex-start;gap:12px;background:#4a251d;border:1px solid #c97b59;border-radius:9px;color:#ffe2d2;font-size:12px;line-height:1.5;padding:12px 14px;box-shadow:0 16px 45px #0009}
 .world-notice span{flex:1}
 .world-notice button{border:0;background:transparent;color:#ffe2d2;font-size:20px;line-height:1;padding:0}
+
+/* Dedicated, persistent world notice; never reuse chat errors for blocked NPC selection. */
+.world-notice{z-index:11;bottom:68px}
+.world-notice-error{bottom:150px}
+.personnel.selected .avatar{box-shadow:0 0 0 2px #3ded98aa,0 0 16px #3ded9855}

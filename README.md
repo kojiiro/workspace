@@ -56,3 +56,6 @@ npm ci
 npm run dev
 ```
 Read `docs/PROTOTYPE-02.md` for scope and ownership.
+
+## Prototype 0.2: Hal Jordan leads the Corps
+Hal Jordan is now the primary character, centrally located and selected by default. He and John Stewart both use separate local **mock** chats; this is **not** a live Gemini or ChatGPT API connection. Game-world pointer interactions are ignored while the chat/menu overlay is open. The blocked-switch notice remains until you dismiss it.

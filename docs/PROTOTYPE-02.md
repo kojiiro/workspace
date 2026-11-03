@@ -6,8 +6,8 @@ The first vertical slice is a **registry-driven multi-NPC headquarters**, not th
 ## NPC registry
 - `packages/gateway/src/registry.ts` is the authority for `NpcId -> NpcDescriptor + optional ChatProvider`.
 - `GET /api/npcs` returns all registered NPCs.
-- John Stewart is available with a mock provider and a `chat` capability.
-- Hal Jordan (Gemini), Kyle Rayner (Claude), Guy Gardner (fourth AI TBD), Sinestro (WhatsApp), and Kilowog (Discord) are visible but explicitly `unconfigured` and advertise no actions.
+- Hal Jordan is the primary Lantern and defaults to local mock chat (not a Gemini API connection). John Stewart retains his own independent local mock chat.
+- Kyle Rayner (Claude), Guy Gardner (fourth AI TBD), Sinestro (WhatsApp), and Kilowog (Discord) are visible but explicitly `unconfigured` and advertise no actions.
 - An unconfigured NPC request to `POST /api/chat` is rejected (503), and unknown NPCs return 404.
 - Conversation ownership remains enforced in the local gateway.
 - Scene positions and temporary vector artwork live **only in the client** in `game.ts`, keyed by NpcId. A missing visual config gets a generic fallback.
@@ -16,7 +16,7 @@ The first vertical slice is a **registry-driven multi-NPC headquarters**, not th
 - All six NPCs are selectable by clicking their characters or sidebar entries.
 - Interaction menus are generated from server-advertised capabilities.
 - Offline idle/wandering animation runs in Phaser and makes **zero external requests**.
-- John retains existing mock-chat and SSE streaming behavior.
+- Hal is the default selected character, visually centered and mock-chat capable; John retains his own mock-chat and SSE streaming behavior.
 - Unsupported characters clearly say their service is not connected.
 
 ## Not yet implemented
