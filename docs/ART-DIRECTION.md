@@ -10,7 +10,7 @@ The browser is a living Green Lantern Corps-inspired headquarters. The commander
 - Assets should be original/commissioned or appropriately licensed. Prototype geometry is original vector art. Do not copy official character artwork or commercially licensed Sims assets into the repository.
 
 ## Character visual benchmark
-Start with **John Stewart** as the single proof-of-concept character before generating a full roster:
+Start with **Hal Jordan** as the single proof-of-concept character (Corps leader / GPT representative) before generating a full roster:
 - Proportions: readable stylized 3D-inspired human silhouette in a 2.5D view, not chibi/pixel art.
 - Costume: dark green and black science-fiction uniform with subtle glowing trim and clearly visible face.
 - Consistent appearance between idle and movement angles.

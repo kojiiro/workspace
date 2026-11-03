@@ -38,7 +38,7 @@ export function createDefaultNpcRegistry(johnProvider: ChatProvider, halProvider
   const registrations: NpcRegistration[] = [
     {
       descriptor: {
-        id: "hal", displayName: "Hal Jordan", represents: "Gemini (mock mode)",
+        id: "hal", displayName: "Hal Jordan", represents: "GPT / ChatGPT (mock mode)",
         adapterId: halProvider.id, status: "ready",
         capabilities: halProvider.capabilities.map(capability => ({ ...capability }))
       },
@@ -46,7 +46,7 @@ export function createDefaultNpcRegistry(johnProvider: ChatProvider, halProvider
     },
     {
       descriptor: {
-        id: "john", displayName: "John Stewart", represents: "ChatGPT (mock mode)",
+        id: "john", displayName: "John Stewart", represents: "Gemini (mock mode)",
         adapterId: johnProvider.id, status: "ready",
         capabilities: johnProvider.capabilities.map(capability => ({ ...capability }))
       },

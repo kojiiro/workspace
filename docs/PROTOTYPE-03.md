@@ -10,7 +10,7 @@ A persistent local Mission Board on top of the Prototype 0.2 six-character headq
 - Work fully locally without AI API keys or any automatic messaging.
 
 ## Core distinction
-**Assignment is only metadata in v0.3.** Selecting Hal or John does *not* silently call Gemini, ChatGPT, or any other remote service. The main reason for this phase is to give the game an actually useful planning feature.
+**Assignment is only metadata in v0.3.** Hal is the GPT representative and leader, John represents Gemini, and Kyle represents Claude. Assigning anyone does *not* silently call ChatGPT, Gemini, Claude, or any other remote service. The main reason for this phase is to give the game an actually useful planning feature.
 
 ## Local API
 - `GET /api/missions` — list

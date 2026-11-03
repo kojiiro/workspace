@@ -46,7 +46,7 @@ The gateway binds to `127.0.0.1`. It rejects untrusted browser origins and valid
 Run `npm test` for the gateway safety/concurrency tests.
 
 ## Prototype 0.2 development branch
-On `feat/living-corps-npc-registry`, the game displays six selectable Corps members from a backend NPC registry and animates their idle/wandering routines locally. John is still mock-only; other apps/AIs are intentionally unconfigured.
+The six Corps members are loaded from the backend NPC registry. Hal (GPT) leads, John (Gemini) assists, and both offer independent local mock chat. Kyle (Claude), Guy, Sinestro and Kilowog remain unconfigured.
 
 To try this development version after cloning:
 ```powershell
@@ -58,7 +58,7 @@ npm run dev
 Read `docs/PROTOTYPE-02.md` for scope and ownership.
 
 ## Prototype 0.2: Hal Jordan leads the Corps
-Hal Jordan is now the primary character, centrally located and selected by default. He and John Stewart both use separate local **mock** chats; this is **not** a live Gemini or ChatGPT API connection. Game-world pointer interactions are ignored while the chat/menu overlay is open. The blocked-switch notice remains until you dismiss it.
+Hal Jordan is the primary character, centrally located and selected by default, representing **GPT / ChatGPT**. John Stewart represents **Gemini**, and Kyle Rayner represents **Claude**. Hal and John currently use separate local **mock** chats; neither model API is connected yet. Game-world pointer interactions are ignored while the chat/menu overlay is open. The blocked-switch notice remains until you dismiss it.
 
 ## Prototype 0.3 development: Mission Control
 The `feat/mission-control-local-board` branch adds a Mission Board. Missions are saved locally under `data/missions.json` (ignored by Git). Assigned characters are labels for organization, **not automatic AI agents**. Use the regular `npm ci` and `npm run dev` commands, then open Mission Board from the sidebar. See `docs/PROTOTYPE-03.md`.
