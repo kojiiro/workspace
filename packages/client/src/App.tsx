@@ -2,14 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, EventEnvelope, GatewayError, NpcDescriptor, SendChatResponse } from "@glc/shared";
 import { mountHeadquarters } from "./game";
 
-const NPC_PLACEHOLDERS = [
-  { name: "Hal Jordan", role: "Gemini", tag: "COMING SOON" },
-  { name: "Kyle Rayner", role: "Claude", tag: "COMING SOON" },
-  { name: "Guy Gardner", role: "Additional AI", tag: "PLANNED" },
-  { name: "Sinestro", role: "WhatsApp", tag: "PLANNED" },
-  { name: "Kilowog", role: "Discord", tag: "PLANNED" }
-];
-
 type UIMessage = Pick<ChatMessage, "role" | "content">;
 function errorText(body: unknown): string {
   if (body && typeof body === "object" && "error" in body) {
@@ -21,8 +13,9 @@ function errorText(body: unknown): string {
 
 function App() {
   const world = useRef<HTMLDivElement>(null);
-  const [npc, setNpc] = useState<NpcDescriptor | null>(null);
-  const npcRef = useRef<NpcDescriptor | null>(null);
+  const [npcs, setNpcs] = useState<NpcDescriptor[]>([]);
+  const [selectedId, setSelectedId] = useState("john");
+  const npc = npcs.find(item => item.id === selectedId) ?? null;
   const [menu, setMenu] = useState(false);
   const [chat, setChat] = useState(false);
   const [status, setStatus] = useState<"connecting" | "online" | "offline">("connecting");
@@ -78,7 +71,7 @@ function App() {
   function applyEvent(envelope: EventEnvelope) {
     const ev = envelope.event;
     if (ev.type === "npc.status") {
-      setNpc(previous => previous?.id === ev.npcId ? { ...previous, status: ev.status } : previous);
+      setNpcs(previous => previous.map(item => item.id === ev.npcId ? { ...item, status: ev.status } : item));
       return;
     }
     if (!("runId" in ev)) return;
@@ -116,9 +109,7 @@ function App() {
       .then(response => response.ok ? response.json() : Promise.reject(new Error("NPC registry unavailable")))
       .then((list: NpcDescriptor[]) => {
         if (!mounted) return;
-        const found = list.find(n => n.id === "john") ?? null;
-        npcRef.current = found;
-        setNpc(found);
+        setNpcs(list);
       })
       .catch(() => {});
 
@@ -150,13 +141,45 @@ function App() {
     };
   }, []);
 
+  function selectNpc(id: string) {
+    if (activeRunRef.current || awaitingAckRef.current) {
+      setError("Finish or cancel the current mission before changing personnel.");
+      return;
+    }
+    if (!npcs.some(item => item.id === id)) return;
+    if (selectedId !== id) {
+      // Each NPC owns its own conversation. Until multi-conversation storage is
+      // implemented, selecting another character resets the local chat view.
+      setMessages([]);
+      setConversationId(undefined);
+      setText("");
+      setError("");
+      setStream("");
+    }
+    setSelectedId(id);
+    setChat(false);
+    setMenu(true);
+  }
+
   useEffect(() => {
     const node = world.current;
-    if (!node) return;
-    return mountHeadquarters(node, id => {
-      if (npcRef.current?.id === id) setMenu(true);
+    if (!node || npcs.length === 0) return;
+    return mountHeadquarters(node, npcs, id => {
+      if (activeRunRef.current || awaitingAckRef.current) return;
+      setSelectedId(previous => {
+        if (previous !== id) {
+          setMessages([]);
+          setConversationId(undefined);
+          setText("");
+          setError("");
+          setStream("");
+        }
+        return id;
+      });
+      setChat(false);
+      setMenu(true);
     });
-  }, []);
+  }, [npcs]);
 
   useEffect(() => () => { clearWatchdog(); }, []);
 
@@ -234,37 +257,50 @@ function App() {
         <span className="brand-mark">◉</span>
         <span><strong>GREEN LANTERN CORPS</strong><small>COMMAND CENTER / LOCAL WORKSPACE</small></span>
       </div>
-      <div className="topbar-right"><span className="version">PROTOTYPE 0.1</span><span className={`connection ${status}`}><i />{status==="online"?"GATEWAY ONLINE":status==="offline"?"GATEWAY OFFLINE":"CONNECTING"}</span></div>
+      <div className="topbar-right"><span className="version">PROTOTYPE 0.2 / REGISTRY</span><span className={`connection ${status}`}><i />{status==="online"?"GATEWAY ONLINE":status==="offline"?"GATEWAY OFFLINE":"CONNECTING"}</span></div>
     </header>
     <div className="layout">
       <aside className="sidebar">
         <div className="side-title">HEADQUARTERS</div>
         <button className="side-link active" onClick={()=>{setChat(false);setMenu(false);}}>◈ <span>Command Hall</span></button>
         <div className="side-title space">CORPS PERSONNEL</div>
-        <button className="personnel" onClick={()=>setMenu(true)}>
-          <span className="avatar">JS</span><span><b>John Stewart</b><small>ChatGPT · Mock</small></span><span className="online-dot"/>
-        </button>
-        {NPC_PLACEHOLDERS.map(p=><div className="personnel muted" key={p.name} title="Not implemented in prototype 0.1"><span className="avatar ghost">?</span><span><b>{p.name}</b><small>{p.role}</small></span><span className="lock">◇</span></div>)}
+        {npcs.map(member => <button
+          className={`personnel ${member.id === selectedId ? "selected" : ""} ${member.status === "ready" ? "" : "pending"}`}
+          key={member.id}
+          onClick={() => selectNpc(member.id)}>
+          <span className={`avatar ${member.status === "ready" ? "" : "ghost"}`}>{member.displayName.split(" ").map(part => part[0]).join("").slice(0,2)}</span>
+          <span><b>{member.displayName}</b><small>{member.represents}</small></span>
+          {member.status === "ready" ? <span className="online-dot" title="Available"/> : <span className="lock" title="Not configured">◇</span>}
+        </button>)}
+        {npcs.length === 0 && <div className="registry-loading">Connect the gateway to load Corps personnel.</div>}
         <div className="sidebar-bottom"><div className="callout"><b>TRAINING SIMULATION</b><p>No paid AI requests. Nothing leaves your local gateway except dependency installation.</p></div></div>
       </aside>
       <main className="main">
         <div className="world-head"><div><div className="eyebrow">SECTOR 2814 / OA</div><h1>Command Hall</h1><p>Your Corps is standing by for assignments.</p></div><span className="world-badge">● HEADQUARTERS ACTIVE</span></div>
         <div className="world-frame">
-          <div ref={world} className="phaser-stage" aria-label="Isometric Green Lantern headquarters. Click John Stewart to open his menu."/>
-          <div className="hud-left"><span className="hud-light"/> LIVE WORLD <span className="separator">/</span> 1 ACTIVE LANTERN</div>
+          <div ref={world} className="phaser-stage" aria-label="Isometric Green Lantern headquarters. Click any character to open their menu."/>
+          <div className="hud-left"><span className="hud-light"/> LIVE WORLD <span className="separator">/</span> {npcs.length} REGISTERED PERSONNEL</div>
           <div className="hud-right">SCROLL TO ZOOM · DRAG TO PAN · CLICK AN NPC</div>
-          {menu&&!chat&&<div className="npc-menu">
-            <div className="menu-header"><div><small>GREEN LANTERN / AI REPRESENTATIVE</small><h2>John Stewart</h2><p>ChatGPT — Local training mode</p></div><button className="icon-button" aria-label="Close interaction menu" onClick={()=>setMenu(false)}>×</button></div>
-            <button className="action" onClick={()=>{setChat(true);setMenu(false);}}>◈ <span><b>Talk to John</b><small>Open a simulated AI conversation</small></span><span>↗</span></button>
-            <div className="action disabled"><span>▣</span><span><b>Assign a mission</b><small>Coming in a later version</small></span></div>
-            <div className="action disabled"><span>◎</span><span><b>View AI abilities</b><small>Real providers not connected yet</small></span></div>
+          {menu&&!chat&&npc&&<div className="npc-menu">
+            <div className="menu-header"><div><small>GREEN LANTERN / AI REPRESENTATIVE</small><h2>{npc.displayName}</h2><p>{npc.represents} · {npc.status === "ready" ? "Available" : "Not configured"}</p></div><button className="icon-button" aria-label="Close interaction menu" onClick={()=>setMenu(false)}>×</button></div>
+            {npc.capabilities.map(cap => cap.id === "chat" ? (
+              <button className="action" key={cap.id} onClick={()=>{setChat(true);setMenu(false);}}>
+                ◈ <span><b>{cap.label}</b><small>Local mock conversation · No API charges</small></span><span>↗</span>
+              </button>
+            ) : <div className="action disabled" key={cap.id}>
+              <span>◇</span><span><b>{cap.label}</b><small>Not yet implemented</small></span>
+            </div>)}
+            {npc.capabilities.length === 0 && <div className="npc-offline-note">
+              This character is registered in the headquarters, but its {npc.represents} integration is not connected yet.
+              Its presence and animation are simulated locally without API calls.
+            </div>}
           </div>}
-          {chat&&<section className="chat-panel" aria-label="John Stewart chat">
-            <div className="chat-header"><span className="avatar">JS</span><div><strong>John Stewart</strong><small>MOCK AI · NO API KEY REQUIRED</small></div><button className="icon-button" aria-label="Close chat" onClick={()=>setChat(false)}>×</button></div>
+          {chat&&npc?.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" aria-label={npc.displayName + " chat"}>
+            <div className="chat-header"><span className="avatar">JS</span><div><strong>{npc.displayName}</strong><small>MOCK AI · NO API KEY REQUIRED</small></div><button className="icon-button" aria-label="Close chat" onClick={()=>setChat(false)}>×</button></div>
             <div className="chat-body" aria-live="polite">
               {messages.length===0&&<div className="welcome"><div className="welcome-symbol">◉</div><h3>Lantern, your orders?</h3><p>I'm ready for a test mission. This is a local mock response, not ChatGPT.</p></div>}
-              {messages.map((m,i)=><div className={`bubble ${m.role}`} key={i}><span className="bubble-label">{m.role==="user"?"COMMANDER":"JOHN STEWART"}</span>{m.content}</div>)}
-              {stream&&<div className="bubble assistant"><span className="bubble-label">JOHN STEWART · TRANSMITTING</span>{stream}</div>}
+              {messages.map((m,i)=><div className={`bubble ${m.role}`} key={i}><span className="bubble-label">{m.role==="user"?"COMMANDER":npc.displayName.toUpperCase()}</span>{m.content}</div>)}
+              {stream&&<div className="bubble assistant"><span className="bubble-label">{npc.displayName.toUpperCase()} · TRANSMITTING</span>{stream}</div>}
               {busy&&!stream&&<div className="typing">John is responding…</div>}
               {error&&<div className="error" role="alert">{error}</div>}
             </div>
@@ -274,7 +310,7 @@ function App() {
             </form>
           </section>}
         </div>
-        <div className="underworld"><div><b>01 / COMMAND HALL</b><span>Click John Stewart to start a simulated conversation.</span></div><button onClick={()=>setMenu(true)}>INTERACT WITH JOHN ↗</button></div>
+        <div className="underworld"><div><b>01 / COMMAND HALL</b><span>{npcs.length} characters registered · Only John Stewart has mock chat enabled.</span></div><button onClick={()=>selectNpc("john")}>INTERACT WITH JOHN ↗</button></div>
       </main>
     </div>
   </div>;
