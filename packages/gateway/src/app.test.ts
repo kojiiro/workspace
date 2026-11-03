@@ -103,7 +103,8 @@ test("gateway logging is configurable and silent by default for tests", async ()
   const silent = createGateway();
   const logged = createGateway(undefined, { logger: true });
   try {
-    assert.equal(silent.log.level, "silent");
+    // The disabled Fastify logger is a no-op and has no level property.
+    assert.equal(silent.log.level, undefined);
     assert.equal(logged.log.level, "info");
   } finally {
     await silent.close();
