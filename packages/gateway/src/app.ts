@@ -29,8 +29,9 @@ function fail(code: GatewayError["code"], message: string, retryable = false): {
   return { error: { code, message, retryable } };
 }
 
-export function createGateway(provider: ChatProvider = new MockChatProvider()) {
-  const app = Fastify({ logger: false, bodyLimit: 12_000 });
+export function createGateway(provider: ChatProvider = new MockChatProvider(), options: { logger?: boolean } = {}) {
+  // Production logs errors (including port conflicts), tests stay silent by default.
+  const app = Fastify({ logger: options.logger ?? false, bodyLimit: 12_000 });
   const conversations = new Map<string, ChatMessage[]>();
   const owners = new Map<string, string>();
   const activeConversations = new Set<string>();

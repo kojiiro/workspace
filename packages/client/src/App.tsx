@@ -187,7 +187,24 @@ function App() {
         body: JSON.stringify({ npcId: npc.id, conversationId, text: content })
       });
       const data: unknown = await response.json();
-      if (!response.ok) throw new Error(errorText(data));
+      if (!response.ok) {
+        // The gateway stores conversations in memory in v0.1. Restarting it
+        // invalidates the previous ID, so automatically release the stale ID.
+        const gatewayError =
+          data && typeof data === "object" && "error" in data
+            ? (data as { error?: GatewayError }).error
+            : undefined;
+        if (response.status === 404 && conversationId &&
+            gatewayError?.code === "unavailable" &&
+            gatewayError.message === "Conversation not found.") {
+          setConversationId(undefined);
+          // Old bubbles no longer represent messages stored by the gateway.
+          // failCurrent will restore the most recent unsent text for a retry.
+          setMessages([]);
+          throw new Error("The previous conversation was lost after the gateway restarted. Your message was restored; send it again to start a new conversation.");
+        }
+        throw new Error(errorText(data));
+      }
       const payload = data as SendChatResponse;
       setConversationId(payload.conversationId);
       activeRunRef.current = payload.runId;

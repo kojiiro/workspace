@@ -97,3 +97,33 @@ test("provider ending without a done chunk releases the conversation lock", asyn
     assert.equal(followup.statusCode, 202);
   } finally { await app.close(); }
 });
+
+
+test("gateway logging is configurable and silent by default for tests", async () => {
+  const silent = createGateway();
+  const logged = createGateway(undefined, { logger: true });
+  try {
+    assert.equal(silent.log.level, "silent");
+    assert.equal(logged.log.level, "info");
+  } finally {
+    await silent.close();
+    await logged.close();
+  }
+});
+
+test("a stale conversation ID returns a detectable 404 so the client can reset", async () => {
+  const app = createGateway();
+  try {
+    const staleId = "c408b907-841e-4bf6-aece-6e4542987c3e";
+    const response = await app.inject({
+      method: "POST", url: "/api/chat", headers: HOST,
+      payload: request("john", "please retry", staleId)
+    });
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(response.json(), {
+      error: { code: "unavailable", message: "Conversation not found.", retryable: false }
+    });
+  } finally {
+    await app.close();
+  }
+});
