@@ -31,6 +31,40 @@ export interface NpcDescriptor {
   status: NpcStatus;
 }
 
+/** A mission is a local project/task record; assigning one does not call an AI. */
+export const missionStatusSchema = z.enum(["planned", "in_progress", "completed"]);
+export type MissionStatus = z.infer<typeof missionStatusSchema>;
+
+const missionTitleSchema = z.string().trim().min(1).max(120);
+const missionNotesSchema = z.string().trim().max(1000);
+const missionAssigneeSchema = z.string().regex(/^[a-z0-9-]{1,48}$/).nullable();
+
+export const createMissionSchema = z.object({
+  title: missionTitleSchema,
+  notes: missionNotesSchema.default(""),
+  assignedNpcId: missionAssigneeSchema.default(null)
+}).strict();
+
+export const updateMissionSchema = z.object({
+  title: missionTitleSchema.optional(),
+  notes: missionNotesSchema.optional(),
+  assignedNpcId: missionAssigneeSchema.optional(),
+  status: missionStatusSchema.optional()
+}).strict().refine(value => Object.keys(value).length > 0, "Specify at least one change");
+
+export type CreateMissionRequest = z.infer<typeof createMissionSchema>;
+export type UpdateMissionRequest = z.infer<typeof updateMissionSchema>;
+
+export interface Mission {
+  id: string;
+  title: string;
+  notes: string;
+  assignedNpcId: NpcId | null;
+  status: MissionStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type Role = "user" | "assistant" | "system";
 
 export interface ChatMessage {

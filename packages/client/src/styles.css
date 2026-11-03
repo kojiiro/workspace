@@ -20,3 +20,54 @@
 
 /* Make the active NPC name readable above the dark interaction card. */
 .npc-menu .menu-header h2{color:#e7fff2}
+
+/* Mission Control — local project management, styled for the OA headquarters. */
+.mission-panel{position:absolute;top:14px;right:14px;bottom:14px;z-index:18;
+  width:min(520px,calc(100% - 28px));background:#0a2524f7;border:1px solid #51b887;
+  border-radius:12px;box-shadow:0 24px 70px #000b;display:flex;flex-direction:column;
+  color:#e3f7e9;overflow:hidden;backdrop-filter:blur(15px)}
+.mission-header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;
+  padding:18px 20px 15px;background:#12362f;border-bottom:1px solid #295940}
+.mission-eyebrow{font-size:9px;letter-spacing:.16em;color:#7bdfa7;font-weight:700}
+.mission-header h2{font:700 27px "Arial Narrow",Arial,sans-serif;color:#e6fff3;margin:4px 0 5px}
+.mission-header p{color:#92bbaa;font-size:11px;margin:0}
+.mission-close{font-size:26px;line-height:1;background:transparent;border:0;color:#bcdfcd;padding:1px 4px}
+.mission-content{padding:18px 20px 24px;overflow-y:auto;min-height:0;flex:1}
+.mission-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px}
+.mission-stats>div{background:#153d34;border:1px solid #306e50;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:4px}
+.mission-stats strong{font-size:23px;color:#a0ffd0}
+.mission-stats span{font-size:10px;color:#8bbba5}
+.mission-create{background:#102e2b;border:1px solid #30604c;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:7px}
+.mission-create h3,.mission-list-header h3{font:700 18px "Arial Narrow",Arial,sans-serif;color:#e4ffe9;margin:0 0 5px}
+.mission-create h3 span{color:#6bebb2;margin-right:6px}
+.mission-create label{font-size:10px;font-weight:700;letter-spacing:.06em;color:#9cd0b6;margin-top:5px}
+.mission-create input,.mission-create textarea,.mission-create select,.mission-actions select{
+  color:#e8fff2;border:1px solid #3c765a;border-radius:7px;background:#0a2120;padding:10px 11px;font:12px "Segoe UI",Arial,sans-serif;width:100%}
+.mission-create textarea{resize:vertical;min-height:55px}
+.mission-create select option,.mission-actions select option{color:#e8fff2;background:#12342d}
+.mission-disclaimer{font-size:10px;line-height:1.5;color:#8db4a6;margin:5px 0 2px}
+.mission-add{background:#71f8ac;border:0;border-radius:8px;color:#072419;font-size:12px;font-weight:800;padding:12px}
+.mission-add:disabled{opacity:.5;cursor:not-allowed}
+.mission-list-header{display:flex;justify-content:space-between;align-items:center;margin:20px 0 12px}
+.mission-list-header h3{margin:0}
+.mission-list-header span{font-size:10px;color:#84ae9f}
+.mission-list{display:flex;flex-direction:column;gap:10px}
+.mission-card{background:#13362f;border:1px solid #295a46;border-radius:10px;padding:14px}
+.mission-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.mission-card-top strong{font-size:13px;line-height:1.4;overflow-wrap:anywhere;flex:1}
+.mission-status{font-size:9px;white-space:nowrap;background:#355544;padding:5px 8px;border-radius:30px;color:#d9f9e5}
+.mission-status.status-in_progress{background:#375543;color:#bdf8c9}
+.mission-status.status-completed{background:#275f43;color:#a6ffc2}
+.mission-card p{color:#a5c5b3;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;margin:8px 0}
+.mission-owner{margin:10px 0;font-size:10px;color:#b5e8c7}
+.mission-owner>span:first-child{color:#789f8b}
+.mission-unconfigured{color:#d8b782}
+.mission-actions{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;border-top:1px solid #285544;padding-top:11px}
+.mission-actions label{display:flex;flex-direction:column;gap:6px;font-size:10px;color:#82bca0;flex:1}
+.mission-actions select{padding:7px 8px}
+.mission-actions button{border:1px solid #8d5049;background:transparent;color:#f7b3a6;border-radius:7px;padding:9px 13px;font-size:11px}
+.mission-actions button:disabled{opacity:.45;cursor:not-allowed}
+.mission-error{background:#542521;color:#ffc9b5;border:1px solid #8d5049;padding:10px;border-radius:8px;font-size:11px;margin:10px 0}
+.mission-empty{padding:22px 12px;background:#12302c;border:1px dashed #487663;text-align:center;border-radius:9px;display:flex;flex-direction:column;gap:5px;font-size:11px;color:#9fcbb5}
+.mission-empty strong{color:#dafae8;font-size:13px}
+@media(max-width:650px){.mission-panel{inset:7px;width:auto}.mission-content{padding:12px}.mission-header{padding:12px}.mission-stats>div{padding:9px}}
