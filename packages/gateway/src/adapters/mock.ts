@@ -16,7 +16,10 @@ const delay = (ms: number, signal: AbortSignal) =>
 
 export class MockChatProvider implements ChatProvider {
   readonly id = "mock";
-  readonly capabilities = [{ id: "chat" as const, label: "Talk to John", risk: "safe" as const }];
+  readonly capabilities: ChatProvider["capabilities"];
+  constructor(private readonly lanternName = "John Stewart") {
+    this.capabilities = [{ id: "chat", label: "Talk to " + lanternName.split(" ")[0], risk: "safe" }];
+  }
 
   async health() { return "ready" as const; }
 
@@ -26,7 +29,7 @@ export class MockChatProvider implements ChatProvider {
       throw Object.assign(new Error("This is a simulated rate-limit error."), { code: "rate_limited" });
     }
     const answer = [
-      "Lantern John Stewart reporting in.",
+      "Lantern " + this.lanternName + " reporting in.",
       "This is the offline training simulator, so no real AI service was contacted.",
       `Your mission briefing: "${question.slice(0, 180)}"`,
       "Our headquarters interface is working! In a later phase we can connect a real AI provider here."

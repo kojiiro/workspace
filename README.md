@@ -44,3 +44,18 @@ The gateway binds to `127.0.0.1`. It rejects untrusted browser origins and valid
 5. Disconnect the gateway briefly and reconnect; the SSE connection should recover.
 
 Run `npm test` for the gateway safety/concurrency tests.
+
+## Prototype 0.2 development branch
+On `feat/living-corps-npc-registry`, the game displays six selectable Corps members from a backend NPC registry and animates their idle/wandering routines locally. John is still mock-only; other apps/AIs are intentionally unconfigured.
+
+To try this development version after cloning:
+```powershell
+git fetch origin
+git switch feat/living-corps-npc-registry
+npm ci
+npm run dev
+```
+Read `docs/PROTOTYPE-02.md` for scope and ownership.
+
+## Prototype 0.2: Hal Jordan leads the Corps
+Hal Jordan is now the primary character, centrally located and selected by default. He and John Stewart both use separate local **mock** chats; this is **not** a live Gemini or ChatGPT API connection. Game-world pointer interactions are ignored while the chat/menu overlay is open. The blocked-switch notice remains until you dismiss it.

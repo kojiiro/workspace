@@ -1,8 +1,9 @@
 import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import { PROTOCOL_VERSION, sendChatRequestSchema } from "@glc/shared";
-import type { ChatMessage, EventEnvelope, GatewayError, GatewayEvent, NpcDescriptor, ChatProvider } from "@glc/shared";
+import type { ChatMessage, EventEnvelope, GatewayError, GatewayEvent, ChatProvider } from "@glc/shared";
 import { MockChatProvider } from "./adapters/mock.js";
+import { createDefaultNpcRegistry } from "./registry.js";
 
 const allowedHosts = new Set([
   "127.0.0.1:3001", "localhost:3001",
@@ -18,13 +19,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   internal: "The mission failed. Please try again."
 };
 
-const john: NpcDescriptor = {
-  id: "john", displayName: "John Stewart", represents: "ChatGPT (mock mode)",
-  adapterId: "mock",
-  capabilities: [{ id: "chat", label: "Talk to John", risk: "safe" }],
-  status: "ready"
-};
-
 function fail(code: GatewayError["code"], message: string, retryable = false): { error: GatewayError } {
   return { error: { code, message, retryable } };
 }
@@ -32,6 +26,7 @@ function fail(code: GatewayError["code"], message: string, retryable = false): {
 export function createGateway(provider: ChatProvider = new MockChatProvider(), options: { logger?: boolean } = {}) {
   // Production logs errors (including port conflicts), tests stay silent by default.
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 12_000 });
+  const registry = createDefaultNpcRegistry(provider);
   const conversations = new Map<string, ChatMessage[]>();
   const owners = new Map<string, string>();
   const activeConversations = new Set<string>();
@@ -61,7 +56,7 @@ export function createGateway(provider: ChatProvider = new MockChatProvider(), o
   });
 
   app.get("/api/health", async () => ({ protocol: PROTOCOL_VERSION, mode: "mock" }));
-  app.get("/api/npcs", async () => [john]);
+  app.get("/api/npcs", async () => registry.list());
 
   app.get<{ Params: { id: string } }>("/api/conversations/:id/messages", async (request, reply) => {
     if (!/^[0-9a-f-]{36}$/i.test(request.params.id)) {
@@ -74,7 +69,12 @@ export function createGateway(provider: ChatProvider = new MockChatProvider(), o
     const parsed = sendChatRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send(fail("invalid_request", "Please enter a message up to 2000 characters."));
     const { npcId, text, conversationId: existingId } = parsed.data;
-    if (npcId !== john.id) return reply.code(404).send(fail("unavailable", "This NPC is not available in the prototype."));
+    const entry = registry.get(npcId);
+    if (!entry) return reply.code(404).send(fail("unavailable", "Unknown NPC."));
+    if (!entry.provider || !entry.descriptor.capabilities.some(cap => cap.id === "chat")) {
+      return reply.code(503).send(fail("unavailable", "This NPC is not connected yet."));
+    }
+    const selectedProvider = entry.provider;
     if (runs.size >= MAX_CONCURRENT) return reply.code(429).send(fail("rate_limited", "Too many simultaneous missions.", true));
 
     const conversationId = existingId ?? randomUUID();
@@ -109,7 +109,7 @@ export function createGateway(provider: ChatProvider = new MockChatProvider(), o
       let result = "";
       let completed = false;
       try {
-        for await (const chunk of provider.chat({
+        for await (const chunk of selectedProvider.chat({
           messages: [...messages, userMessage].map(({ role, content }) => ({ role, content })),
           maxOutputTokens: 240
         }, controller.signal)) {
