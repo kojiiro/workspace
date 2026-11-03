@@ -301,7 +301,7 @@ function App() {
           {error&&!chat&&<div className="world-notice world-notice-error" role="alert">
             <span>{error}</span><button type="button" onClick={()=>setError("")} aria-label="Dismiss error">×</button>
           </div>}
-          {menu&&!chat&&npc&&<div className="npc-menu" onPointerDownCapture={event=>event.stopPropagation()} onClickCapture={event=>event.stopPropagation()}>
+          {menu&&!chat&&npc&&<div className="npc-menu" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
             <div className="menu-header"><div><small>GREEN LANTERN / AI REPRESENTATIVE</small><h2>{npc.displayName}</h2><p>{npc.represents} · {npc.status === "ready" ? "Available" : "Not configured"}</p></div><button className="icon-button" aria-label="Close interaction menu" onClick={()=>setMenu(false)}>×</button></div>
             {npc.capabilities.map(cap => cap.id === "chat" ? (
               <button className="action" key={cap.id} onClick={()=>{setChat(true);setMenu(false);}}>
@@ -315,7 +315,7 @@ function App() {
               Its presence and animation are simulated locally without API calls.
             </div>}
           </div>}
-          {chat&&npc&&npc.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" onPointerDownCapture={event=>event.stopPropagation()} onClickCapture={event=>event.stopPropagation()} aria-label={npc.displayName + " chat"}>
+          {chat&&npc&&npc.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} aria-label={npc.displayName + " chat"}>
             <div className="chat-header"><span className="avatar">{npc.displayName.split(" ").map(part=>part[0]).join("").slice(0,2)}</span><div><strong>{npc.displayName}</strong><small>{npc.adapterId==="mock"?"MOCK AI · NO API KEY REQUIRED":npc.represents.toUpperCase()}</small></div><button className="icon-button" aria-label="Close chat" onClick={()=>setChat(false)}>×</button></div>
             <div className="chat-body" aria-live="polite">
               {messages.length===0&&<div className="welcome"><div className="welcome-symbol">◉</div><h3>Lantern, your orders?</h3><p>{npc.adapterId==="mock"?"I'm ready for a test mission. This is a local mock response, not a live AI.":"This NPC connects through its configured AI provider."}</p></div>}

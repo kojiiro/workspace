@@ -17,3 +17,6 @@
 .world-notice{z-index:11;bottom:68px}
 .world-notice-error{bottom:150px}
 .personnel.selected .avatar{box-shadow:0 0 0 2px #3ded98aa,0 0 16px #3ded9855}
+
+/* Make the active NPC name readable above the dark interaction card. */
+.npc-menu .menu-header h2{color:#e7fff2}
