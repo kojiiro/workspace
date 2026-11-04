@@ -44,7 +44,7 @@ Important changes to implement and verify before any runtime orchestrator:
 - For startup recovery: pause only `queued/planning/working/reviewing/revising`; leave already-paused and awaiting-review runs untouched; settle `cancelling` to `cancelled`.
 - Import legacy JSON only after an **fsynced, re-read and digest-verified backup**; migrate atomically with a marker and verify canonical records; never auto-reimport if the source JSON later changes.
 - Preserve a future SQLite backup using `db.backup()` or `VACUUM INTO`, not a direct live file copy.
-- **Product-owner decision still to confirm:** default participants for imported missions are John (Gemini) and Kyle (Claude), with Hal (GPT) as lead. This is a proposal and no migration runs in this PR.
+- **Product-owner decision APPROVED (2026-11-05):** every migrated mission defaults to **Hal Jordan (GPT) as lead**, with **John Stewart (Gemini)** and **Kyle Rayner (Claude)** as participants. These are initial assignments only, editable later. This does **not** run the agents or start an AI mission automatically.
 
 The database test runner in `scripts/schema-invariants.test.cjs` is an adaptation of Claude's supplied `better-sqlite3` fixture to Node's built-in SQLite (test-only), allowing it to run automatically on Windows and Ubuntu without installing a native dependency. The production storage implementation will use a reviewed `better-sqlite3` dependency later.
 
@@ -259,4 +259,4 @@ The existing `scripts/schema-invariants.test.cjs` test runner now exercises the 
 
 The GitHub CI workflow also uses current v5 checkout and setup-node actions.
 
-**Freeze remains pending:** Claude's final review, product owner's default-participant choice, explicit `team.event` in `GatewayEvent`, `PROTOCOL_VERSION = 2`, and a reviewed protocol compatibility plan. Do not run migration or live providers from the candidate contract PR.
+**Freeze remains pending:** Claude's final review, explicit `team.event` in `GatewayEvent`, `PROTOCOL_VERSION = 2`, and a reviewed protocol compatibility plan. Do not run migration or live providers from the candidate contract PR.
