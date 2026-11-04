@@ -1,6 +1,7 @@
 # RFC: Collaborative Lantern Missions — Prototype 0.4
 
-Status: **revised design proposal, pending product-owner decisions and Claude contract review**.
+Status: **product-owner decisions approved (2026-11-04); technical contract review pending**.
+The owner explicitly approved: (1) SQLite with a safe, backed-up migration of existing mission data; (2) cascade deletion of a mission's historical team runs/transcripts **only after a clear confirmation**, blocked when a run is active; and (3) final commander review with **Approve / Request changes / Reject**. These are *future implementation requirements*, not authorization to delete data or call any provider now.
 This RFC changes **no executable behavior**. Product requirement: [issue #6](https://github.com/kojiiro/workspace/issues/6).
 Revised following Claude's six-part review of PR #7.
 
@@ -23,13 +24,13 @@ A2 Commander remains the game mode. The Phaser world visualizes activity; the **
 
 ## Decision proposals — product owner
 
-Before the storage implementation, confirm these defaults (recommended by Claude and ChatGPT):
+**Approved by the product owner on 2026-11-04.** These decisions are binding requirements for the next implementation PRs:
 
 1. **Use SQLite now** instead of growing the JSON v1 Mission Board into multiple JSON files. Import existing missions safely, test on the user's Windows laptop, and never lose prior mission records.
 2. **Delete cascade:** after a clear confirmation that the discussion transcript will also be deleted, deleting a mission removes its runs/events. Deletion is blocked while it has an active run.
 3. **Final commander review:** allow **Approve**, **Request changes**, or **Reject**; approval of a deliverable is *not* permission to edit files or send messages.
 
-These are proposals, **not** silently granted approval. No implementation involving destructive migration or deletion changes proceeds before product-owner acceptance.
+Approval covers the described product behavior. Actual deletion must still receive explicit confirmation each time. The upcoming implementation must migrate carefully with verified backups; this RFC changes no saved data.
 
 ## 1. Distinct mission, team run, and step lifecycles
 
