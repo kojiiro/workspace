@@ -171,3 +171,5 @@ export interface ChatProvider {
   chat(input: ChatInput, signal: AbortSignal): AsyncIterable<ChatChunk>;
   health(): Promise<"ready" | "unconfigured" | "offline">;
 }
+
+export * from "./team-contract.js";
