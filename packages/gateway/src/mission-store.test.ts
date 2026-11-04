@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGateway } from "./app.js";
@@ -42,7 +42,8 @@ test("create, update, reload and delete missions across gateway instances", asyn
       assert.equal(list.json()[0].id,id);
       assert.equal(list.json()[0].status,"in_progress");
       const onDisk=JSON.parse(await readFile(path,"utf8"));
-      assert.equal(onDisk.length,1);
+      assert.equal(onDisk.schemaVersion,1);
+      assert.equal(onDisk.missions.length,1);
       const removal=await second.inject({method:"DELETE",url:"/api/missions/"+id,headers:HOST});
       assert.equal(removal.statusCode,204);
       const empty=await second.inject({method:"GET",url:"/api/missions",headers:HOST});
@@ -113,7 +114,105 @@ test("concurrent mission submissions are serialized without lost updates",async(
       const list=await app.inject({method:"GET",url:"/api/missions",headers:HOST});
       assert.equal(list.json().length,12);
       const persisted=JSON.parse(await readFile(path,"utf8"));
-      assert.equal(persisted.length,12);
+      assert.equal(persisted.schemaVersion,1);
+      assert.equal(persisted.missions.length,12);
+    }finally{await app.close();}
+  });
+});
+
+const fixture = (id:string, title:string) => ({
+  id, title, notes:"", assignedNpcId:"hal" as const, status:"planned" as const,
+  createdAt:"2026-11-04T00:00:00.000Z",updatedAt:"2026-11-04T00:00:00.000Z"
+});
+
+test("legacy bare array is accepted, and rewritten only on next save", async()=>{
+  await temporaryStore(async path=>{
+    const legacy=[fixture("ffbf1813-b768-4eaf-854b-0abe82db2dd2","Old mission")];
+    await writeFile(path,JSON.stringify(legacy),"utf8");
+    const app=appFor(path);
+    try{
+      const list=await app.inject({method:"GET",url:"/api/missions",headers:HOST});
+      assert.equal(list.statusCode,200);
+      assert.equal(list.json().length,1);
+      assert.ok(Array.isArray(JSON.parse(await readFile(path,"utf8"))));
+      const updated=await app.inject({
+        method:"PATCH",url:"/api/missions/"+legacy[0].id,headers:HOST,
+        payload:{status:"in_progress"}
+      });
+      assert.equal(updated.statusCode,200);
+      const onDisk=JSON.parse(await readFile(path,"utf8"));
+      assert.equal(onDisk.schemaVersion,1);
+      assert.equal(onDisk.missions.length,1);
+      assert.equal(onDisk.missions[0].status,"in_progress");
+    }finally{await app.close();}
+  });
+});
+
+test("invalid individual records are quarantined without disabling valid missions",async()=>{
+  await temporaryStore(async path=>{
+    const valid=fixture("a75816b4-b05d-49a6-833c-37b76eb49783","Valid record");
+    const invalidDate={...fixture("484bf7aa-d7e9-471f-9d9a-a4c951c13dbf","Broken timestamp")};
+    delete (invalidDate as Partial<typeof invalidDate>).updatedAt;
+    const invalidFields={...fixture("2ff76cf8-05cc-41b7-9422-a2068b0399a2","Broken fields"),
+      assignedNpcId:5,status:"fake"};
+    await writeFile(path,JSON.stringify({schemaVersion:1,missions:[invalidDate,valid,invalidFields]}),"utf8");
+    const app=appFor(path);
+    try {
+      const list=await app.inject({method:"GET",url:"/api/missions",headers:HOST});
+      assert.equal(list.statusCode,200);
+      assert.deepEqual(list.json().map((m:{title:string})=>m.title),["Valid record"]);
+      const sidecar=path.replace(/\.json$/,".rejected.json");
+      const rejected=JSON.parse(await readFile(sidecar,"utf8"));
+      assert.equal(rejected.rejected.length,2);
+      assert.equal(rejected.rejected[0].record.title,"Broken timestamp");
+      assert.equal(rejected.rejected[1].record.assignedNpcId,5);
+      // The source is retained until an actual successful write.
+      assert.equal(JSON.parse(await readFile(path,"utf8")).missions.length,3);
+      const saved=await app.inject({method:"POST",url:"/api/missions",headers:HOST,
+        payload:{title:"New clean mission",notes:"",assignedNpcId:"john"}});
+      assert.equal(saved.statusCode,201);
+      const disk=JSON.parse(await readFile(path,"utf8"));
+      assert.equal(disk.schemaVersion,1);
+      assert.equal(disk.missions.length,2);
+      assert.deepEqual(disk.missions.map((m:{title:string})=>m.title),["Valid record","New clean mission"]);
+    }finally{await app.close();}
+  });
+});
+
+test("unparseable JSON and unknown schema versions fail closed, but recover without restart",async()=>{
+  await temporaryStore(async path=>{
+    const broken='{"schemaVersion":1,"missions":[';
+    await writeFile(path,broken,"utf8");
+    const app=appFor(path);
+    try{
+      const error=await app.inject({method:"GET",url:"/api/missions",headers:HOST});
+      assert.equal(error.statusCode,500);
+      assert.equal(await readFile(path,"utf8"),broken);
+      await writeFile(path,JSON.stringify({schemaVersion:2,missions:[]}),"utf8");
+      const newer=await app.inject({method:"GET",url:"/api/missions",headers:HOST});
+      assert.equal(newer.statusCode,500);
+      const fixed={schemaVersion:1,missions:[fixture("d3687c69-5c8b-4877-91c0-2299eec2b956","Recovered")]};
+      await writeFile(path,JSON.stringify(fixed),"utf8");
+      const recovered=await app.inject({method:"GET",url:"/api/missions",headers:HOST});
+      assert.equal(recovered.statusCode,200);
+      assert.equal(recovered.json()[0].title,"Recovered");
+    }finally{await app.close();}
+  });
+});
+
+test("duplicate mission IDs are rejected while the first valid record stays readable",async()=>{
+  await temporaryStore(async path=>{
+    const original=fixture("d324f6b0-780a-4917-8136-af7078012e68","First");
+    const duplicate={...original,title:"Duplicate"};
+    await writeFile(path,JSON.stringify({schemaVersion:1,missions:[original,duplicate]}),"utf8");
+    const app=appFor(path);
+    try {
+      const response=await app.inject({method:"GET",url:"/api/missions",headers:HOST});
+      assert.equal(response.statusCode,200);
+      assert.equal(response.json().length,1);
+      assert.equal(response.json()[0].title,"First");
+      const quarantined=JSON.parse(await readFile(path.replace(/\.json$/,".rejected.json"),"utf8"));
+      assert.match(quarantined.rejected[0].issues.join(" "),/duplicate/);
     }finally{await app.close();}
   });
 });

@@ -65,6 +65,24 @@ export interface Mission {
   updatedAt: string;
 }
 
+/** Validates every persisted mission before it enters the in-memory store. */
+export const missionSchema = z.object({
+  id: z.uuid(),
+  title: missionTitleSchema,
+  notes: missionNotesSchema,
+  assignedNpcId: missionAssigneeSchema,
+  status: missionStatusSchema,
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime()
+}).strict();
+
+/** Versioned envelope so later team-mission and SQLite migrations are explicit. */
+export const missionFileSchema = z.object({
+  schemaVersion: z.literal(1),
+  missions: z.array(z.unknown())
+}).strict();
+
+
 export type Role = "user" | "assistant" | "system";
 
 export interface ChatMessage {

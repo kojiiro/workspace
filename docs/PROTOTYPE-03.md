@@ -34,3 +34,12 @@ No new npm dependencies are needed. No API usage fees are incurred.
 
 ## Collaboration
 ChatGPT owns the Mission Board interface and initial persistence layer. Claude reviews security, persistence and API contracts before merge. Real AI provider integration and graphical sprite replacement remain separate milestones.
+
+## Claude review hardening (2026-11-04)
+- Persisted missions are individually validated against the shared strict `missionSchema`; invalid records are preserved in a separate `missions.rejected.json` file (or a uniquely suffixed sidecar if the first one already exists). Invalid records never enter the board's in-memory list.
+- Invalid JSON, malformed envelopes and unknown schema versions **fail closed**. The original data file is not overwritten, and the next request can recover after manual repair.
+- Mission files now use `{ "schemaVersion": 1, "missions": [...] }`. Legacy bare-array files are still accepted and migrate on the next successful create/update/delete.
+- Each saved temporary file is flushed to disk before replacement. Replacement is retried briefly on temporary Windows `EPERM`, `EBUSY`, or `EACCES` locks.
+- GitHub Actions builds and tests on both Windows and Ubuntu.
+- Multi-process concurrent writes still require a future SQLite migration; the current single-gateway design serializes writes within one instance.
+- **Do not intentionally corrupt real project data for browser testing without a backup.** Automated tests use isolated temporary directories.
