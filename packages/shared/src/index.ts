@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-// Architecture v1, agreed by ChatGPT and Claude. Bump on breaking changes.
-export const PROTOCOL_VERSION = 1;
+// Protocol v2: additive team event notices. All existing v1 chat and mission
+// routes, event envelopes, request/response shapes, and error codes remain
+// unchanged until the reviewed SQLite storage migration introduces new routes.
+export const PROTOCOL_VERSION = 2;
 
 export type NpcId = string;
 export type ConversationId = string;
@@ -139,7 +141,8 @@ export type GatewayEvent =
   | { type: "run.completed"; runId: RunId; messageId: MessageId; usage: Usage }
   | { type: "run.failed"; runId: RunId; error: GatewayError }
   | { type: "run.cancelled"; runId: RunId }
-  | { type: "npc.status"; npcId: NpcId; status: NpcStatus };
+  | { type: "npc.status"; npcId: NpcId; status: NpcStatus }
+  | { type: "team.event"; missionId: string; teamRunId: string; cursor: number };
 
 export interface EventEnvelope {
   id: number;
@@ -163,7 +166,7 @@ export interface ChatInput {
 
 export type ChatChunk =
   | { type: "delta"; text: string }
-  | { type: "done"; usage: Usage };
+  | { type: "done"; usage: Usage; model?: string };
 
 export interface ChatProvider {
   readonly id: string;
@@ -171,3 +174,5 @@ export interface ChatProvider {
   chat(input: ChatInput, signal: AbortSignal): AsyncIterable<ChatChunk>;
   health(): Promise<"ready" | "unconfigured" | "offline">;
 }
+
+export * from "./team-contract.js";

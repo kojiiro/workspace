@@ -1,0 +1,289 @@
+# Prototype 0.4 — Team-Mission Contract v2
+
+**Status: Approved and frozen after Claude's final independent review.**
+The shared contract is protocol v2: `PROTOCOL_VERSION = 2` and the
+`team.event` notification is part of `GatewayEvent`. This is an **additive
+contract milestone**, not a release of the orchestrator. No team execution,
+production SQLite database, data migration, or external model call is enabled.
+
+**Architecture reference:** [Team Missions RFC](TEAM-MISSIONS-RFC.md) (PR #7).
+**Product requirement:** [issue #6](https://github.com/kojiiro/workspace/issues/6).
+
+## Owner-approved decisions (2026-11-04)
+
+1. **SQLite now**, with transactional import from the existing JSON Mission Board
+   and a verified backup. Never delete/overwrite original records during migration.
+2. **Cascade history deletion** only after an explicit warning naming the loss of
+   team discussions; block deletion while any active run exists. Approval of
+   deletion in the product spec is *not* per-mission authorization.
+3. **Three commander review choices:** Approve, Request changes, Reject. These
+   review a deliverable only, and never authorize file writes or outgoing messages.
+
+## Change boundary
+
+`packages/shared/src/team-contract.ts` exports **reviewed v2 contracts**,
+strict Zod validators, state transitions and helpers.
+`docs/sqlite-team-schema.sql` remains the reviewed database **schema design**,
+not an executed migration. No team routes, provider integrations, database
+files, data migration, or automatic missions are introduced by this PR.
+
+### Protocol v1 → v2 compatibility plan
+
+1. The gateway and client use the **same workspace version** of
+   `@glc/shared`; `/api/health` now advertises `protocol: 2`.
+2. All existing v1 `/api/chat`, `/api/runs/:runId/cancel`,
+   `/api/missions`, `/api/events`, and NPC endpoints retain their
+   previous behavior and payload shapes until the storage integration PR.
+3. v2 adds the `team.event` discriminant to `GatewayEvent`.
+   **No team events are published yet.** Legacy consumers must safely
+   ignore unknown event types; the existing React consumer already does.
+4. Before enabling real team events, the client will validate `team.event`
+   and replay its durable cursor from the SQLite event history. Legacy chat
+   `run.*` events and `EventEnvelope.id` remain separate from
+   `TeamEvent.cursor`.
+5. A stale external v1 client may still use unchanged v1 routes, but it must
+   not assume protocol 2 includes a functioning team API. Future behavioral
+   changes to Mission Board (revision-aware `If-Match`) require a coordinated
+   client/server update, explicit migration and regression tests.
+6. Protocol 2 does **not** mean saved JSON missions have moved to SQLite,
+   that a v2 team endpoint is available, or that a live AI model is connected.
+
+### Release freeze
+
+Independent reviewer: **Claude — Approved** (report on reviewed commit
+`9294d287`, with the product-owner default-participant decision recorded
+in documentation commit `7550bbe7`). The additive freeze changes are covered
+by automated v2 contract tests. Tag the merged contract commit once both
+architecture and contract PRs are merged.
+
+## Claude's contract re-review (2026-11-05)
+
+During technical review, Claude requested changes after demonstrating that, without `PRAGMA recursive_triggers=ON`, SQLite's `INSERT OR REPLACE` could silently overwrite an append-only team event. The revised proposal uses the corrected SQL schema and comprehensive SQLite invariant tests supplied with the review. This contract PR **still does not run database migration**.
+
+Important changes to implement and verify before any runtime orchestrator:
+- Enable and assert `foreign_keys=ON`, `recursive_triggers=ON`, and WAL on **each** SQLite connection; forbid `INSERT OR REPLACE` on team records.
+- Derive the active run from the unique run index: remove `missions.active_run_id`.
+- Guard run-state transitions and versions with a seeded transition table and SQL triggers; block deleting active missions and deleting individual events or runs.
+- Constrain event/run ownership, event kinds, foreign keys, step attempts, and same-run parent linkage. Add a global durable event cursor.
+- Track `endReason`, `unreviewed`, `commander_decision`, both peer and commander revision rounds (max 2 each), and active execution time separate from paused or commander-review time.
+- Model outputs **strip unknown fields** after validation; client requests remain **strict**. Route revision requests to approved participants only.
+- Store integer `costMicros`, map existing provider token usage to the team event, and allow optional `model` on ChatProvider's `done` chunk (additive).
+- For startup recovery: pause only `queued/planning/working/reviewing/revising`; leave already-paused and awaiting-review runs untouched; settle `cancelling` to `cancelled`.
+- Import legacy JSON only after an **fsynced, re-read and digest-verified backup**; migrate atomically with a marker and verify canonical records; never auto-reimport if the source JSON later changes.
+- Preserve a future SQLite backup using `db.backup()` or `VACUUM INTO`, not a direct live file copy.
+- **Product-owner decision APPROVED (2026-11-05):** every migrated mission defaults to **Hal Jordan (GPT) as lead**, with **John Stewart (Gemini)** and **Kyle Rayner (Claude)** as participants. These are initial assignments only, editable later. This does **not** run the agents or start an AI mission automatically.
+
+The database test runner in `scripts/schema-invariants.test.cjs` is an adaptation of Claude's supplied `better-sqlite3` fixture to Node's built-in SQLite (test-only), allowing it to run automatically on Windows and Ubuntu without installing a native dependency. The production storage implementation will use a reviewed `better-sqlite3` dependency later.
+
+## 1. Records and roles
+
+Three different entity lifecycles MUST stay distinct:
+
+- **Mission**: title, notes, `planned | in_progress | completed`, lead
+  (Hal/GPT), participants (John/Gemini, Kyle/Claude), `revision`, and optional
+  `activeRunId`. One mission may have many historical team runs.
+- **TeamRun**: a single bounded execution of a *snapshot* of a mission,
+  `version`, `clientRequestId`, immutable limits, paused-from state, mode
+  (mock/live), and run state. Only one active run per mission.
+- **TeamStep / Attempt**: one collaborator's assigned piece and each attempt to
+  complete it. Restart/resume creates a new attempt ID; late responses cannot
+  overwrite a later attempt.
+
+For a run, explicit states are:
+
+```
+queued -> planning -> working -> reviewing -> awaiting_commander_review -> completed
+                                |                                  |
+                                +-> revising <- request_changes --+
+                                      |
+                                      +-> working -> reviewing
+active state -> paused (gateway restart; never auto-resume)
+active state -> cancelling -> cancelled
+active state -> failed
+```
+
+`completed | cancelled | failed` are terminal. Paused runs can resume only to
+their **persisted interrupted state** and only after an explicit commander
+interaction. A cancelled/failed run does not erase its mission or prior events.
+
+- Hal offline: stop with an explicit failed outcome.
+- John offline: preserve mission and run, mark his step skipped and report it.
+- Kyle offline: mark the result **unreviewed**; commander must acknowledge
+  review was unavailable before approval.
+- Final review decisions: approve = completed; request_changes = new bounded
+  revision round; reject = cancelled (reason `commander_rejected`).
+- Request changes beyond the limit yields a clear `limit_reached` outcome,
+  not an unbounded cycle.
+
+`TEAM_RUN_TRANSITIONS` is the reviewed transition table. The orchestrator
+must enforce the table in the same transaction that updates the run and appends
+its event; no UI code can advance states on its own.
+
+## 2. SQLite contract
+
+See [the proposed SQL](sqlite-team-schema.sql). An implementation should use
+a reviewed `better-sqlite3` version in WAL mode with `foreign_keys=ON`,
+durable transactions, and all migration/concurrency tests on Windows and Ubuntu.
+
+Minimum invariants:
+- A partial unique index allows at most one active run per mission.
+- Mission content/coarse status uses revision increments. Run progress uses its
+  independent version; streaming deltas do **not** bump mission revision.
+- `UPDATE missions SET ... revision=revision+1 WHERE id=? AND revision=?`
+  must report zero affected rows for stale edits.
+- Each step's status, run transition and completed-step event are written in
+  **one transaction**.
+- `(run_id, sequence)` is unique; team-event `cursor` is a globally increasing
+  SQLite `AUTOINCREMENT` primary key. Events remain ordered across restarts.
+- Team events are append-only through normal APIs. Deleting a confirmed
+  finished mission may cascade-delete its transcripts; authorization and
+  deletion happen in the same transaction. Review the supplied SQL triggers
+  and cascade order carefully before execution.
+- Public data paths are under gitignored `data/`. Never commit projects,
+  transcripts, SQLite databases, backups or API credentials.
+
+### Existing JSON migration (safe, exactly once)
+
+1. Detect `data/missions.json`; **do not overwrite it**. Start with a
+   validated backup and database transaction.
+2. Validate outer file: either existing `schemaVersion:1` envelope or legacy
+   bare array. Unsupported newer version or malformed envelope fails closed.
+3. Validate each v1 mission; preserve invalid records in SQLite
+   `rejected_records`, keyed by a content hash, not repeating sidecars.
+4. Insert valid mission IDs, titles, notes, assignee and times. Default
+   `leadNpcId="hal"`, `revision=1`, no active run, and explicit initial
+   participants, without inventing historical AI runs.
+5. Commit imported rows and a migration marker in **one transaction**. Verify
+   source digest and row counts. Only then archive JSON to `.migrated` or a
+   verified backup. If renaming fails, do not reimport on restart.
+6. On restart, verify marker and rollback/repair safely; never delete the
+   original until the owner has a recoverable copy and the import is verified.
+
+### Concurrent edits and deletion
+
+- `PATCH /api/missions/:id` and `DELETE /api/missions/:id` require
+  `If-Match: "5"`, where 5 is the current mission revision.
+- Missing precondition: HTTP **428**; malformed header: **400**; stale revision:
+  HTTP **409** with a typed error and the latest mission representation.
+- A mission with an active run cannot be deleted (409), including when paused
+  or awaiting commander review.
+- A confirmed deletion asks whether to permanently remove the mission **and
+  all prior team discussion history**. Deletion is scoped to that mission,
+  transactional, and not automatically implied by a deliverable approval.
+
+## 3. Team event / API contract
+
+All character-to-character messages are persisted as **data**, not model
+instructions. An event contains a durable cursor and unique within-run
+sequence, run/mission/step IDs, round, sender/recipient actors, event kind,
+timestamp, plain-text message, and server-set provenance/usage. It does not
+contain or expose internal model reasoning.
+
+`from` and `to` use the discriminated `TeamActor` union:
+`{type:"commander"} | {type:"system"} | {type:"npc",npcId}`.
+
+The gateway publishes a new `team.event` notification on the existing SSE
+connection, separate from current chat `run.*` events. Each notification
+identifies a durable `cursor`, not an unbounded transcript. The client:
+1. opens the SSE stream, buffering incoming `team.*` notifications,
+2. fetches `GET .../events?after=<cursor>`,
+3. merges and de-duplicates events by cursor,
+4. advances its saved cursor; after reconnect, repeats from the last cursor.
+
+Persist only completed step and meaningful state-transition events. Token
+deltas are temporary and **not** stored one row per token.
+
+### Proposed routes, NOT implemented yet
+
+| Method | Route | Contract |
+|---|---|---|
+| POST | `/api/missions/:id/team-runs` | Starts server-owned team run; body strictly `{clientRequestId}`, idempotent; 202 |
+| GET | `/api/missions/:id/team-runs/:teamRunId` | State, version, review and snapshot |
+| GET | `/api/missions/:id/team-runs/:teamRunId/events?after=...` | Durable ordered transcript |
+| POST | `/api/missions/:id/team-runs/:teamRunId/cancel` | Idempotent cancel, including during review |
+| POST | `/api/missions/:id/team-runs/:teamRunId/resume` | Explicit resume of paused run |
+| POST | `/api/missions/:id/team-runs/:teamRunId/review` | `approve/request_changes/reject`; no tool authorization |
+
+The gateway checks run-to-mission ownership on every request, applies current
+localhost Host/Origin protections, validates all request and response data, and
+never lets the browser supply agent identities, providers, simulated/live flags,
+keys, or budget ceilings.
+
+## 4. Provider, budget, and security rules
+
+- **Reuse existing `ChatProvider`**, including Hal, John and Kyle, not a
+  second parallel `AgentAdapter` registry.
+- Start with deterministic **mock providers** that nevertheless pass through
+  the same Zod plan/review validation and state machine as real providers.
+- Include happy path, revision, offline John, offline Kyle, unavailable Hal,
+  malformed plan, slow/overlong output, restart and cancellation cases.
+- Every message and final report clearly says:
+  **"Local simulation. No AI model was consulted."**
+- Proposed immutable mock caps: 12 steps, 2 revision rounds, 4 subtasks,
+  6,000 characters/event, 120 events/run, 20s/step, 5 min/run, at most one
+  active run/mission and two concurrent runs across the gateway. Lower limits
+  are allowed; model-supplied outputs can never raise limits.
+- Later live providers are opt-in, with explicit configuration, health checks,
+  cost budgets and per-provider limits; aborted calls may still have billable
+  usage to record. The prototype defaults to **zero external API calls**.
+- User mission notes, received documents, other model responses and Hal's
+  plan are **untrusted data**, not instructions authorizing tools.
+- Use typed errors, redact secrets from logs and do not log transcript text.
+  Render model output as plain text; no auto-loaded links or images.
+- Outbound messages, repository/file edits or deletion actions require separate
+  explicit, target-specific, expiring approval. Approval of a result is not
+  consent to a side effect.
+
+## 5. Contract acceptance / division of work
+
+**Contract review — Claude:** check schema fields, SQL constraints and the
+cascade-delete trigger, step-attempt fencing, restart transitions, HTTP codes,
+If-Match conflict responses and migration rollback. Propose amendments before
+protocol v2 is enabled. This PR is intentionally reviewable without a live
+database or provider calls.
+
+**Storage PR — Claude/backend, ChatGPT/client:** build and test SQLite and a
+`MissionRepository` interface (`list/get/create/update/delete`), copy JSON
+missions safely, update UI conflict handling, validate Windows and Ubuntu.
+
+**Orchestrator PR — Claude/backend:** implement bounded mocked team runs,
+attempt-fenced cancellation, restart pause/recovery, Zod plan/review parsing,
+and event replay. Verify no remote network access in mock mode.
+
+**Team Discussion PR — ChatGPT/frontend:** render participants, shared
+transcript, provenance disclaimer, resume/review/cancel controls, and safe
+cursor replay. **Phaser visuals PR — ChatGPT:** NPC reactions based only on
+persisted team events.
+
+**Frozen contract is a prerequisite:** no live GPT/Gemini/Claude adapters until
+these boundaries, review workflows and budgets have working tests.
+
+
+## Contract amendments relative to the first draft
+
+1. Team runs have nullable `pausedFrom`, `endReason`, `unreviewed`, `activeExecutionMs`, and `completedAt`. Execution timeout excludes review and pause time; the runtime maintains elapsed active time transactionally.
+2. The sum of `maxRevisionRounds` (peer, at most 2) and `maxCommanderRevisionRounds` (commander, at most 2) determines the allowed total round index (maximum 4).
+3. A `request_revision` model review must contain a non-empty `revisions` array of {participantNpcId, instruction}. The orchestrator rejects targets outside the immutable participant list.
+4. The commander decision includes `expectedRunVersion`, `acknowledgeUnreviewed`, and notes (required on Request changes); stale decisions reject. Client request bodies remain strict.
+5. Team event outputs include `commander_decision` and `costMicros`; individual team steps, attempts, and synthesis outputs have independent schemas.
+6. The provider `done` chunk may expose an optional `model` name. Mock usage cost is **0 microdollars**; live pricing is separate provider-side accounting.
+7. A run is paused on restart **only if its executor was active**. A run awaiting commander review remains awaiting; a run already cancelling is settled as cancelled.
+
+This document records the amended reviewed contract; Claude's re-review is required before freezing protocol v2 or enabling SQLite migrations or team execution.
+
+
+## Claude's third technical review — additions (2026-11-05)
+
+Claude's re-review of commit `4afeff8` reported four remaining gaps.
+The following changes are now part of PR #9's **proposed, unused contracts**:
+
+1. **Participant storage:** `mission_participants` stores one-to-four team members with unique identity and order. Database triggers and Zod refinements enforce that Hal or any other mission lead cannot also occupy a participant slot, including after lead/participant edits. The team-run snapshot has the same rule.
+2. **Migration receipts:** `schema_migrations` records migration version, source SHA-256, verified backup path/digest, and imported/rejected counts. `rejected_records` deduplicates malformed source records by content hash. The migration itself is **not yet implemented** and must still perform fsync, re-read, and content verification before import.
+3. **Unreviewed is server-owned:** Hal's model synthesis output now contains only `summary` and `deliverable`. The orchestrator must independently derive `unreviewed` and `gaps` from durable step outcomes and cannot trust a model's self-assessment. A peer review cannot request revision from the reviewer.
+4. **Attempt ownership:** `attemptId` is present in the typed team-event contract. An SQL trigger prevents an event from referencing an attempt that belongs to another step.
+
+The existing `scripts/schema-invariants.test.cjs` test runner now exercises the 13 scenarios Claude supplied and two additional participant-edit protections. All tests run on Windows and Ubuntu, using `node:sqlite` for verification. Production `better-sqlite3` integration and its native-driver tests belong in the storage implementation PR.
+
+The GitHub CI workflow also uses current v5 checkout and setup-node actions.
+
+**Contract freeze completed:** Claude's final review, explicit `team.event` in `GatewayEvent`, `PROTOCOL_VERSION = 2`, and a reviewed protocol compatibility plan. Do not run migration or live providers from the reviewed contract PR.

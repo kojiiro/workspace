@@ -28,7 +28,7 @@ The command launches the React/Phaser client and the Fastify mock gateway togeth
 Real ChatGPT/Gemini/Claude connections, Discord, WhatsApp, persistence after gateway restart, and downloadable game assets. See `docs/ARCHITECTURE.md`.
 
 ## Structure
-- `packages/shared` — frozen v1 protocol types and Zod request schema
+- `packages/shared` — protocol v2 shared types and Zod schemas; v1 chat routes remain compatible and team execution is not enabled
 - `packages/client` — React menus + Phaser world
 - `packages/gateway` — Fastify localhost gateway + mock provider
 - `docs/` — architectural decisions and handoff notes
@@ -62,3 +62,6 @@ Hal Jordan is the primary character, centrally located and selected by default, 
 
 ## Prototype 0.3 development: Mission Control
 The `feat/mission-control-local-board` branch adds a Mission Board. Missions are saved locally under `data/missions.json` (ignored by Git). Assigned characters are labels for organization, **not automatic AI agents**. Use the regular `npm ci` and `npm run dev` commands, then open Mission Board from the sidebar. See `docs/PROTOTYPE-03.md`.
+
+## Prototype 0.4 contract (protocol v2)
+The reviewed team-mission contract is documented in `docs/TEAM-CONTRACT-04.md`; it adds the `team.event` event type and schema definitions without enabling AI team execution or changing the existing chat/Mission Board behavior. Data migration to SQLite and mock team collaboration will be implemented in later reviewed changes. Hal (GPT) leads, with John (Gemini) and Kyle (Claude) as the approved default teammates for imported missions.
