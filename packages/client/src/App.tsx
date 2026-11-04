@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, EventEnvelope, GatewayError, NpcDescriptor, SendChatResponse } from "@glc/shared";
 import { mountHeadquarters } from "./game";
 import type { HeadquartersBridge } from "./game";
+import MissionBoard from "./MissionBoard";
 
 type UIMessage = Pick<ChatMessage, "role" | "content">;
 function errorText(body: unknown): string {
@@ -22,6 +23,7 @@ function App() {
   const npc = npcs.find(item => item.id === selectedId) ?? null;
   const [menu, setMenu] = useState(false);
   const [chat, setChat] = useState(false);
+  const [missionOpen, setMissionOpen] = useState(false);
   const [status, setStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<UIMessage[]>([]);
@@ -168,6 +170,7 @@ function App() {
     setNotice("");
     selectedIdRef.current = id;
     setSelectedId(id);
+    setMissionOpen(false);
     setChat(false);
     setMenu(true);
   }
@@ -181,7 +184,7 @@ function App() {
     if (!node || !isRegistryReady) return;
     const bridge=mountHeadquarters(node, npcs, id=>selectNpcRef.current(id));
     worldBridge.current=bridge;
-    bridge.setUiBlocked(menu || chat);
+    bridge.setUiBlocked(menu || chat || missionOpen);
     return () => {
       worldBridge.current=null;
       bridge.destroy();
@@ -192,8 +195,8 @@ function App() {
     worldBridge.current?.updateNpcs(npcs);
   }, [npcs]);
   useEffect(() => {
-    worldBridge.current?.setUiBlocked(menu || chat);
-  }, [menu, chat]);
+    worldBridge.current?.setUiBlocked(menu || chat || missionOpen);
+  }, [menu, chat, missionOpen]);
 
   useEffect(() => () => { clearWatchdog(); }, []);
 
@@ -271,12 +274,15 @@ function App() {
         <span className="brand-mark">◉</span>
         <span><strong>GREEN LANTERN CORPS</strong><small>COMMAND CENTER / LOCAL WORKSPACE</small></span>
       </div>
-      <div className="topbar-right"><span className="version">PROTOTYPE 0.2 / REGISTRY</span><span className={`connection ${status}`}><i />{status==="online"?"GATEWAY ONLINE":status==="offline"?"GATEWAY OFFLINE":"CONNECTING"}</span></div>
+      <div className="topbar-right"><span className="version">PROTOTYPE 0.3 / MISSION CONTROL</span><span className={`connection ${status}`}><i />{status==="online"?"GATEWAY ONLINE":status==="offline"?"GATEWAY OFFLINE":"CONNECTING"}</span></div>
     </header>
     <div className="layout">
       <aside className="sidebar">
         <div className="side-title">HEADQUARTERS</div>
         <button className="side-link active" onClick={()=>{setChat(false);setMenu(false);}}>◈ <span>Command Hall</span></button>
+        <div className="side-title space">MISSION CONTROL</div>
+        <button className={`side-link ${missionOpen?"active":""}`}
+          onClick={()=>{setMissionOpen(true);setChat(false);setMenu(false);}}>▤ <span>Mission Board</span></button>
         <div className="side-title space">CORPS PERSONNEL</div>
         {npcs.map(member => <button
           className={`personnel ${member.id === selectedId ? "selected" : ""} ${member.status === "ready" ? "" : "pending"}`}
@@ -295,13 +301,14 @@ function App() {
           <div ref={world} className="phaser-stage" aria-label="Isometric Green Lantern headquarters. Click any character to open their menu."/>
           <div className="hud-left"><span className="hud-light"/> LIVE WORLD <span className="separator">/</span> {npcs.length} REGISTERED PERSONNEL</div>
           <div className="hud-right">SCROLL TO ZOOM · DRAG TO PAN · CLICK AN NPC</div>
+          {missionOpen&&<MissionBoard npcs={npcs} onClose={()=>setMissionOpen(false)}/>}
           {notice&&<div className="world-notice" role="alert" onPointerDownCapture={event=>event.stopPropagation()}>
             <span>{notice}</span><button type="button" onClick={()=>setNotice("")} aria-label="Dismiss notification">×</button>
           </div>}
           {error&&!chat&&<div className="world-notice world-notice-error" role="alert">
             <span>{error}</span><button type="button" onClick={()=>setError("")} aria-label="Dismiss error">×</button>
           </div>}
-          {menu&&!chat&&npc&&<div className="npc-menu" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
+          {menu&&!chat&&!missionOpen&&npc&&<div className="npc-menu" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
             <div className="menu-header"><div><small>GREEN LANTERN / AI REPRESENTATIVE</small><h2>{npc.displayName}</h2><p>{npc.represents} · {npc.status === "ready" ? "Available" : "Not configured"}</p></div><button className="icon-button" aria-label="Close interaction menu" onClick={()=>setMenu(false)}>×</button></div>
             {npc.capabilities.map(cap => cap.id === "chat" ? (
               <button className="action" key={cap.id} onClick={()=>{setChat(true);setMenu(false);}}>
@@ -315,7 +322,7 @@ function App() {
               Its presence and animation are simulated locally without API calls.
             </div>}
           </div>}
-          {chat&&npc&&npc.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} aria-label={npc.displayName + " chat"}>
+          {chat&&!missionOpen&&npc&&npc.capabilities.some(cap => cap.id === "chat")&&<section className="chat-panel" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} aria-label={npc.displayName + " chat"}>
             <div className="chat-header"><span className="avatar">{npc.displayName.split(" ").map(part=>part[0]).join("").slice(0,2)}</span><div><strong>{npc.displayName}</strong><small>{npc.adapterId==="mock"?"MOCK AI · NO API KEY REQUIRED":npc.represents.toUpperCase()}</small></div><button className="icon-button" aria-label="Close chat" onClick={()=>setChat(false)}>×</button></div>
             <div className="chat-body" aria-live="polite">
               {messages.length===0&&<div className="welcome"><div className="welcome-symbol">◉</div><h3>Lantern, your orders?</h3><p>{npc.adapterId==="mock"?"I'm ready for a test mission. This is a local mock response, not a live AI.":"This NPC connects through its configured AI provider."}</p></div>}

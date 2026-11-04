@@ -11,3 +11,6 @@ dist/
 .DS_Store
 .vscode/
 coverage/
+
+# Local Mission Board data and atomic temporary files (do not commit private projects)
+data/

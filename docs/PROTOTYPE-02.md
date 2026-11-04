@@ -6,7 +6,7 @@ The first vertical slice is a **registry-driven multi-NPC headquarters**, not th
 ## NPC registry
 - `packages/gateway/src/registry.ts` is the authority for `NpcId -> NpcDescriptor + optional ChatProvider`.
 - `GET /api/npcs` returns all registered NPCs.
-- Hal Jordan is the primary Lantern and defaults to local mock chat (not a Gemini API connection). John Stewart retains his own independent local mock chat.
+- Hal Jordan is the Corps leader and represents GPT / ChatGPT (OpenAI). John Stewart represents Gemini (Google). Both currently use independent local mock chats—neither provider API is connected.
 - Kyle Rayner (Claude), Guy Gardner (fourth AI TBD), Sinestro (WhatsApp), and Kilowog (Discord) are visible but explicitly `unconfigured` and advertise no actions.
 - An unconfigured NPC request to `POST /api/chat` is rejected (503), and unknown NPCs return 404.
 - Conversation ownership remains enforced in the local gateway.

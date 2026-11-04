@@ -17,6 +17,8 @@ test("registry describes the Corps with Hal as primary mock character", async ()
     assert.deepEqual(members.filter((member:{status:string})=>member.status==="ready")
       .map((member:{id:string})=>member.id),["hal","john"]);
     assert.deepEqual(members.find((member:{id:string})=>member.id==="hal").capabilities, [{id:"chat",label:"Talk to Hal",risk:"safe"}]);
+    assert.equal(members.find((member:{id:string})=>member.id==="hal").represents,"GPT / ChatGPT (mock mode)");
+    assert.equal(members.find((member:{id:string})=>member.id==="john").represents,"Gemini (mock mode)");
   } finally {await app.close();}
 });
 
