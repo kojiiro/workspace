@@ -243,3 +243,20 @@ these boundaries, review workflows and budgets have working tests.
 7. A run is paused on restart **only if its executor was active**. A run awaiting commander review remains awaiting; a run already cancelling is settled as cancelled.
 
 This document records the amended candidate contract; Claude's re-review is required before freezing protocol v2 or enabling SQLite migrations or team execution.
+
+
+## Claude's third technical review — additions (2026-11-05)
+
+Claude's re-review of commit `4afeff8` reported four remaining gaps.
+The following changes are now part of PR #9's **proposed, unused contracts**:
+
+1. **Participant storage:** `mission_participants` stores one-to-four team members with unique identity and order. Database triggers and Zod refinements enforce that Hal or any other mission lead cannot also occupy a participant slot, including after lead/participant edits. The team-run snapshot has the same rule.
+2. **Migration receipts:** `schema_migrations` records migration version, source SHA-256, verified backup path/digest, and imported/rejected counts. `rejected_records` deduplicates malformed source records by content hash. The migration itself is **not yet implemented** and must still perform fsync, re-read, and content verification before import.
+3. **Unreviewed is server-owned:** Hal's model synthesis output now contains only `summary` and `deliverable`. The orchestrator must independently derive `unreviewed` and `gaps` from durable step outcomes and cannot trust a model's self-assessment. A peer review cannot request revision from the reviewer.
+4. **Attempt ownership:** `attemptId` is present in the typed team-event contract. An SQL trigger prevents an event from referencing an attempt that belongs to another step.
+
+The existing `scripts/schema-invariants.test.cjs` test runner now exercises the 13 scenarios Claude supplied and two additional participant-edit protections. All tests run on Windows and Ubuntu, using `node:sqlite` for verification. Production `better-sqlite3` integration and its native-driver tests belong in the storage implementation PR.
+
+The GitHub CI workflow also uses current v5 checkout and setup-node actions.
+
+**Freeze remains pending:** Claude's final review, product owner's default-participant choice, explicit `team.event` in `GatewayEvent`, `PROTOCOL_VERSION = 2`, and a reviewed protocol compatibility plan. Do not run migration or live providers from the candidate contract PR.

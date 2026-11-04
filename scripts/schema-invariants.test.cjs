@@ -129,6 +129,83 @@ const full=()=>{const db=mk();mission(db);run(db);step(db);attempt(db);ev(db,1);
  });
  db.close();
 }
+
+/* Claude's third review: 13 additional checks from schema-additions.test.cjs.
+   The original better-sqlite3 fixture was adapted to node:sqlite for Windows
+   and Ubuntu CI, with two extra tests covering lead/participant updates. */
+{
+ const db=mk();
+ mission(db,"addon-m1");mission(db,"addon-m2");
+ const part=(m,n,p)=>db.prepare(
+   "INSERT INTO mission_participants(mission_id,npc_id,position) VALUES(?,?,?)"
+ ).run(m,n,p);
+ expect("participants: store John and Kyle",false,()=>{part("addon-m1","john",0);part("addon-m1","kyle",1);});
+ expect("participants: duplicate NPC is refused",true,()=>part("addon-m1","john",2));
+ expect("participants: duplicate position is refused",true,()=>part("addon-m1","guy",1));
+ expect("participants: the lead Hal cannot participate",true,()=>part("addon-m1","hal",2));
+ expect("participants: missing mission is refused",true,()=>part("nonexistent","john",0));
+ expect("participants: cannot update a participant into the lead",true,()=>
+   db.prepare("UPDATE mission_participants SET npc_id='hal' WHERE mission_id='addon-m1' AND npc_id='john'").run());
+ expect("participants: cannot change mission lead to an existing participant",true,()=>
+   db.prepare("UPDATE missions SET lead_npc_id='john' WHERE id='addon-m1'").run());
+ const makeRun=(id,mid)=>db.prepare(
+   "INSERT INTO team_runs(id,mission_id,client_request_id,state,mode,snapshot_json,started_at,updated_at) VALUES(?,?,?,?,?,?,?,?)"
+ ).run(id,mid,id,"working","mock","{}",N,N);
+ makeRun("addon-r1","addon-m1");makeRun("addon-r2","addon-m2");
+ const makeStep=(id,runId)=>db.prepare(
+   "INSERT INTO team_steps(id,run_id,npc_id,position,round,status,created_at,updated_at) VALUES(?,?,?,0,0,'running',?,?)"
+ ).run(id,runId,"john",N,N);
+ makeStep("addon-s1","addon-r1");makeStep("addon-s2","addon-r2");
+ const makeAttempt=(id,stepId)=>db.prepare(
+   "INSERT INTO team_step_attempts(id,step_id,attempt_no,state,started_at) VALUES(?,?,1,'running',?)"
+ ).run(id,stepId,N);
+ makeAttempt("addon-a1","addon-s1");makeAttempt("addon-a2","addon-s2");
+ const makeEvent=(id,mid,runId,stepId,attemptId,sequence)=>db.prepare(
+   "INSERT INTO team_events(event_uuid,mission_id,run_id,step_id,attempt_id,sequence,round,at,kind,from_actor_json,to_actors_json,text,provenance_json) VALUES(?,?,?,?,?,?,0,?,'status','{}','[]','x','{}')"
+ ).run(id,mid,runId,stepId,attemptId,sequence,N);
+ expect("attempt belongs to event step: valid accepted",false,()=>
+   makeEvent("addon-e1","addon-m1","addon-r1","addon-s1","addon-a1",1));
+ expect("attempt belongs to event step: other run refused",true,()=>
+   makeEvent("addon-e2","addon-m1","addon-r1","addon-s1","addon-a2",2));
+ expect("attempt with no event step refused",true,()=>
+   makeEvent("addon-e3","addon-m1","addon-r1",null,"addon-a1",3));
+ expect("event step without attempt accepted",false,()=>
+   makeEvent("addon-e4","addon-m1","addon-r1","addon-s1",null,4));
+ expect("reimporting same malformed mission only records one rejection",false,()=>{
+   const stmt=db.prepare(
+     "INSERT OR IGNORE INTO rejected_records(content_sha256,source_name,source_position,reason,raw_json,rejected_at) VALUES(?,?,?,?,?,?)"
+   );
+   for(let i=0;i<3;i++)stmt.run("same-hash","missions.json",5,"missing updatedAt","{}",N);
+   if(db.prepare("SELECT count(*) c FROM rejected_records").get().c!==1)
+     throw Error("rejected record duplicated");
+ });
+ expect("migration marker records digests and import counts",false,()=>db.prepare(
+   "INSERT INTO schema_migrations(version,applied_at,source_name,source_sha256,backup_path,backup_sha256,imported_count,rejected_count) VALUES(2,?,?,?,?,?,?,?)"
+ ).run(N,"missions.json","original-hash","backup.json","backup-hash",7,1));
+ const complete=(id)=>{
+   const transition=db.prepare(
+     "UPDATE team_runs SET state=?,version=version+1 WHERE id=? AND state=?"
+   );
+   transition.run("reviewing",id,"working");
+   transition.run("awaiting_commander_review",id,"reviewing");
+   db.prepare(
+     "UPDATE team_runs SET state='completed',version=version+1,completed_at=?,end_reason='approved' WHERE id=?"
+   ).run(N,id);
+ };
+ complete("addon-r2");
+ expect("delete finished mission cascades its run",false,()=>
+   db.prepare("DELETE FROM missions WHERE id='addon-m2'").run());
+ complete("addon-r1");
+ expect("confirmed mission removal cascades participants, runs and events",false,()=>{
+   db.prepare("DELETE FROM missions WHERE id='addon-m1'").run();
+   const tables=["mission_participants","team_runs","team_steps",
+     "team_step_attempts","team_events"];
+   for(const table of tables)
+     if(db.prepare("SELECT count(*) c FROM "+table).get().c!==0)
+       throw Error("Leftover rows in "+table);
+ });
+ db.close();
+}
 process.stdout.write("SQLITE CONTRACT CHECKS: "+pass+" passed, "+fail+" failed\n");
 if(fail)process.exitCode=1;
 })().catch(e=>{console.error(e);process.exitCode=1;});

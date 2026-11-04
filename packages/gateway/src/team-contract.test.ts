@@ -8,7 +8,7 @@ import {
   teamEventSchema,newTeamEventSchema,teamPlanOutputSchema,
   teamPlanUsesOnlyParticipants,teamReviewOutputSchema,
   teamReviewUsesOnlyParticipants,teamSynthesisOutputSchema,
-  teamRunRecordSchema,teamStepRecordSchema,teamStepAttemptRecordSchema,
+  teamRunRecordSchema,teamRunSnapshotSchema,teamStepRecordSchema,teamStepAttemptRecordSchema,
   startTeamRunRequestSchema,commanderTeamReviewSchema,teamMissionRecordSchema
 } from "@glc/shared";
 
@@ -109,29 +109,37 @@ test("review revisions target only listed team members",()=>{
     revisions:[{participantNpcId:"john",instruction:"Improve accessibility",notes:"extra"}]
   });
   assert.equal("extra" in review,false);
-  assert.equal(teamReviewUsesOnlyParticipants(review,["john","kyle"]),true);
-  assert.equal(teamReviewUsesOnlyParticipants(review,["kyle"]),false);
+  assert.equal(teamReviewUsesOnlyParticipants(review,["john","kyle"],"kyle"),true);
+  assert.equal(teamReviewUsesOnlyParticipants(review,["kyle"],"kyle"),false);
+  const selfDirected=teamReviewOutputSchema.parse({
+    verdict:"request_revision",summary:"Retry",findings:["Clarify"],
+    revisions:[{participantNpcId:"kyle",instruction:"Review my own work"}]
+  });
+  assert.equal(teamReviewUsesOnlyParticipants(selfDirected,["john","kyle"],"kyle"),false);
   assert.equal(teamReviewOutputSchema.safeParse({
     verdict:"accept",summary:"Approved",findings:[]
   }).success,true);
 });
 
 test("synthesis and persisted cost require valid bounded fields",()=>{
+  const stripped=teamSynthesisOutputSchema.parse({
+    summary:"Done",deliverable:"Work complete",unreviewed:false,gaps:["fake"]
+  });
+  assert.equal("unreviewed" in stripped,false);
+  assert.equal("gaps" in stripped,false);
   assert.equal(teamSynthesisOutputSchema.safeParse({
-    summary:"Done",deliverable:"Work complete",unreviewed:false,gaps:[]
-  }).success,true);
-  assert.equal(teamSynthesisOutputSchema.safeParse({
-    summary:"Done",deliverable:"",unreviewed:false,gaps:[]
+    summary:"Done",deliverable:""
   }).success,false);
   const event={
     cursor:1,id:uuid(),missionId:uuid(),teamRunId:uuid(),
-    stepId:null,parentId:null,
+    stepId:null,attemptId:null,parentId:null,
     sequence:1,round:4,at:iso,kind:"commander_decision",
     from:{type:"commander"},to:[{type:"npc",npcId:"hal"}],
     text:"Approve",provenance:{mode:"mock",adapterId:"mock"},
     usage:{inputTokens:0,outputTokens:0,costMicros:0}
   };
   assert.equal(teamEventSchema.safeParse(event).success,true);
+  assert.equal(teamEventSchema.safeParse({...event,attemptId:uuid()}).success,true);
   assert.equal(teamEventSchema.safeParse({
     ...event,usage:{costMicros:1.75}
   }).success,false);
@@ -142,7 +150,7 @@ test("synthesis and persisted cost require valid bounded fields",()=>{
 
 test("new event input cannot forge sequence, cursor or timestamp",()=>{
   const source={
-    missionId:uuid(),teamRunId:uuid(),stepId:null,parentId:null,
+    missionId:uuid(),teamRunId:uuid(),stepId:null,attemptId:null,parentId:null,
     round:0,kind:"delegation",
     from:{type:"npc",npcId:"hal"},to:[{type:"npc",npcId:"john"}],
     text:"Please contribute",provenance:{mode:"mock",adapterId:"mock"},usage:null
@@ -205,5 +213,23 @@ test("mission record has revision and no unsafe cached active run pointer",()=>{
   }).success,false);
   assert.equal(teamMissionRecordSchema.safeParse({
     ...mission,participantNpcIds:["john","john"]
+  }).success,false);
+});
+
+test("team lead cannot also join its own participants in mission or run snapshot",()=>{
+  const mission={
+    id:uuid(),title:"Website",notes:"",assignedNpcId:"hal",
+    leadNpcId:"hal",participantNpcIds:["john","kyle"],
+    status:"planned",revision:1,createdAt:iso,updatedAt:iso
+  };
+  assert.equal(teamMissionRecordSchema.safeParse(mission).success,true);
+  assert.equal(teamMissionRecordSchema.safeParse({
+    ...mission,participantNpcIds:["hal","john"]
+  }).success,false);
+  const snapshot={title:"Website",notes:"",leadNpcId:"hal",
+    participantNpcIds:["john","kyle"],limits:DEFAULT_TEAM_MOCK_LIMITS};
+  assert.equal(teamRunSnapshotSchema.safeParse(snapshot).success,true);
+  assert.equal(teamRunSnapshotSchema.safeParse({
+    ...snapshot,participantNpcIds:["hal","kyle"]
   }).success,false);
 });

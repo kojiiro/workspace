@@ -137,3 +137,54 @@ CREATE TRIGGER team_events_parent_same_run BEFORE INSERT ON team_events
     WHERE event_uuid = NEW.parent_event_uuid AND run_id = NEW.run_id
   )
   BEGIN SELECT RAISE(ABORT,'parent event must belong to the same run'); END;
+
+
+// Claude's PR #9 third-review additions: preserve migration receipts,
+// canonical participant membership and same-step attempt attribution.
+CREATE TABLE mission_participants (
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  npc_id TEXT NOT NULL,
+  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 3),
+  PRIMARY KEY (mission_id, npc_id),
+  UNIQUE (mission_id, position)
+);
+CREATE TRIGGER mission_participants_not_lead BEFORE INSERT ON mission_participants
+  WHEN EXISTS (
+    SELECT 1 FROM missions WHERE id=NEW.mission_id AND lead_npc_id=NEW.npc_id
+  )
+  BEGIN SELECT RAISE(ABORT,'the lead cannot also be a participant'); END;
+-- Also guard later edits: changing the lead or participant membership must
+-- never bypass the initial insert rule.
+CREATE TRIGGER mission_participants_not_lead_on_update
+  BEFORE UPDATE OF npc_id,mission_id ON mission_participants
+  WHEN EXISTS (
+    SELECT 1 FROM missions WHERE id=NEW.mission_id AND lead_npc_id=NEW.npc_id
+  )
+  BEGIN SELECT RAISE(ABORT,'the lead cannot also be a participant'); END;
+CREATE TRIGGER missions_lead_not_participant_on_update
+  BEFORE UPDATE OF lead_npc_id ON missions
+  WHEN EXISTS (
+    SELECT 1 FROM mission_participants
+    WHERE mission_id=NEW.id AND npc_id=NEW.lead_npc_id
+  )
+  BEGIN SELECT RAISE(ABORT,'the lead cannot also be a participant'); END;
+
+CREATE TABLE schema_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL,
+  source_name TEXT, source_sha256 TEXT,
+  backup_path TEXT, backup_sha256 TEXT,
+  imported_count INTEGER CHECK (imported_count IS NULL OR imported_count >= 0),
+  rejected_count INTEGER CHECK (rejected_count IS NULL OR rejected_count >= 0)
+);
+CREATE TABLE rejected_records (
+  content_sha256 TEXT PRIMARY KEY,
+  source_name TEXT NOT NULL, source_position INTEGER,
+  reason TEXT NOT NULL, raw_json TEXT NOT NULL, rejected_at TEXT NOT NULL
+);
+CREATE TRIGGER team_events_attempt_matches_step BEFORE INSERT ON team_events
+  WHEN NEW.attempt_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM team_step_attempts
+    WHERE id=NEW.attempt_id AND step_id IS NEW.step_id
+  )
+  BEGIN SELECT RAISE(ABORT,'attempt does not belong to the event step'); END;

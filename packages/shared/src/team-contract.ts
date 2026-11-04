@@ -94,6 +94,7 @@ export const teamEventSchema=z.object({
   cursor:z.number().int().positive(),
   id:uuid, missionId:uuid,teamRunId:uuid,
   stepId:uuid.nullable(),
+  attemptId:uuid.nullable(),
   parentId:uuid.nullable(),
   sequence:z.number().int().positive(),
   round,
@@ -128,7 +129,9 @@ export const teamMissionRecordSchema=z.object({
   revision:positiveVersion,
   // Active run is DERIVED from the team_runs partial unique index.
   createdAt:iso,updatedAt:iso
-}).strict();
+}).strict().refine(record=>!record.participantNpcIds.includes(record.leadNpcId),{
+  path:["participantNpcIds"],message:"The mission lead cannot also be a participant"
+});
 export type TeamMissionRecord=z.infer<typeof teamMissionRecordSchema>;
 
 export const teamRunSnapshotSchema=z.object({
@@ -137,7 +140,9 @@ export const teamRunSnapshotSchema=z.object({
   leadNpcId:npcId,
   participantNpcIds:participants,
   limits:teamRunLimitsSchema
-}).strict();
+}).strict().refine(snapshot=>!snapshot.participantNpcIds.includes(snapshot.leadNpcId),{
+  path:["participantNpcIds"],message:"The run lead cannot also be a participant"
+});
 export type TeamRunSnapshot=z.infer<typeof teamRunSnapshotSchema>;
 
 export const teamRunEndReasonSchema=z.enum([
@@ -211,16 +216,19 @@ export const teamReviewOutputSchema=z.discriminatedUnion("verdict",[
 ]);
 export type TeamReviewOutput=z.infer<typeof teamReviewOutputSchema>;
 export function teamReviewUsesOnlyParticipants(
-  review:TeamReviewOutput,allowed:readonly string[]
+  review:TeamReviewOutput,allowed:readonly string[],reviewerNpcId:string
 ):boolean {
-  return review.verdict==="accept" ||
-    teamPlanUsesOnlyParticipants({summary:review.summary,subtasks:review.revisions},allowed);
+  if (!allowed.includes(reviewerNpcId)) return false;
+  if (review.verdict==="accept") return true;
+  return review.revisions.every(item=>
+    item.participantNpcId!==reviewerNpcId && allowed.includes(item.participantNpcId)
+  );
 }
+// A model cannot decide whether peer review was completed. The orchestrator
+// derives unreviewed and gaps from durable step outcomes, not model text.
 export const teamSynthesisOutputSchema=z.object({
   summary:z.string().trim().min(1).max(1000),
-  deliverable:z.string().trim().min(1).max(6000),
-  unreviewed:z.boolean(),
-  gaps:z.array(modelFindingSchema).max(4)
+  deliverable:z.string().trim().min(1).max(6000)
 });
 export type TeamSynthesisOutput=z.infer<typeof teamSynthesisOutputSchema>;
 
