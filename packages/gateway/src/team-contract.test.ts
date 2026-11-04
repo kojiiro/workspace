@@ -1,14 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import type { EventEnvelope, GatewayEvent } from "@glc/shared";
 import {
-  TEAM_CONTRACT_DRAFT_VERSION,TEAM_RUN_TERMINAL_STATES,
+  PROTOCOL_VERSION,TEAM_RUN_TERMINAL_STATES,
   TEAM_RUN_TRANSITIONS,DEFAULT_TEAM_MOCK_LIMITS,MAX_TEAM_TOTAL_ROUNDS,
   isAllowedTeamRunTransition,teamRunLimitsSchema,teamActorSchema,
   teamEventSchema,newTeamEventSchema,teamPlanOutputSchema,
   teamPlanUsesOnlyParticipants,teamReviewOutputSchema,
   teamReviewUsesOnlyParticipants,teamSynthesisOutputSchema,
   teamRunRecordSchema,teamRunSnapshotSchema,teamStepRecordSchema,teamStepAttemptRecordSchema,
+  teamEventNoticeSchema,
   startTeamRunRequestSchema,commanderTeamReviewSchema,teamMissionRecordSchema
 } from "@glc/shared";
 
@@ -16,7 +18,7 @@ const iso=new Date().toISOString();
 const uuid=()=>randomUUID();
 
 test("terminal run states have no exits, and illegal transitions fail",()=>{
-  assert.equal(TEAM_CONTRACT_DRAFT_VERSION,2);
+  assert.equal(PROTOCOL_VERSION,2);
   for(const state of TEAM_RUN_TERMINAL_STATES) {
     assert.deepEqual(TEAM_RUN_TRANSITIONS[state],[]);
     for(const next of Object.keys(TEAM_RUN_TRANSITIONS)) {
@@ -232,4 +234,17 @@ test("team lead cannot also join its own participants in mission or run snapshot
   assert.equal(teamRunSnapshotSchema.safeParse({
     ...snapshot,participantNpcIds:["hal","kyle"]
   }).success,false);
+});
+
+test("protocol v2 adds only a typed team.event notice to existing event envelopes",()=>{
+  const teamEvent={
+    type:"team.event" as const,
+    missionId:uuid(),teamRunId:uuid(),cursor:1
+  };
+  assert.equal(teamEventNoticeSchema.safeParse(teamEvent).success,true);
+  assert.equal(teamEventNoticeSchema.safeParse({...teamEvent,cursor:0}).success,false);
+  const envelope:EventEnvelope={id:1,at:iso,event:teamEvent};
+  assert.equal(envelope.event.type,"team.event");
+  const legacy:GatewayEvent={type:"run.cancelled",runId:uuid()};
+  assert.equal(legacy.type,"run.cancelled");
 });

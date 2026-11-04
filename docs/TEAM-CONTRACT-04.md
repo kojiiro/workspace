@@ -1,8 +1,10 @@
-# Prototype 0.4 — Team-Mission Contract Draft
+# Prototype 0.4 — Team-Mission Contract v2
 
-**Status:** candidate contract for Claude's independent review. No executable team
-orchestration exists in this PR. The live chat protocol is still v1, and
-`PROTOCOL_VERSION` is deliberately unchanged pending contract freeze.
+**Status: Approved and frozen after Claude's final independent review.**
+The shared contract is protocol v2: `PROTOCOL_VERSION = 2` and the
+`team.event` notification is part of `GatewayEvent`. This is an **additive
+contract milestone**, not a release of the orchestrator. No team execution,
+production SQLite database, data migration, or external model call is enabled.
 
 **Architecture reference:** [Team Missions RFC](TEAM-MISSIONS-RFC.md) (PR #7).
 **Product requirement:** [issue #6](https://github.com/kojiiro/workspace/issues/6).
@@ -19,19 +21,44 @@ orchestration exists in this PR. The live chat protocol is still v1, and
 
 ## Change boundary
 
-`packages/shared/src/team-contract.ts` exports **draft** types, strict Zod
-validators, the proposed finite-state transition table and a helper.
-`docs/sqlite-team-schema.sql` is a **design artifact**, not a live migration.
-There are no new routes, dependencies, database files, providers, or operations.
+`packages/shared/src/team-contract.ts` exports **reviewed v2 contracts**,
+strict Zod validators, state transitions and helpers.
+`docs/sqlite-team-schema.sql` remains the reviewed database **schema design**,
+not an executed migration. No team routes, provider integrations, database
+files, data migration, or automatic missions are introduced by this PR.
 
-Merge/freeze this only after Claude reviews the exact contracts and confirms
-which changes warrant a `PROTOCOL_VERSION` bump to 2. Existing v1 chat and
-Mission Board APIs remain functional until the storage PR implements a controlled
-migration and client updates.
+### Protocol v1 → v2 compatibility plan
+
+1. The gateway and client use the **same workspace version** of
+   `@glc/shared`; `/api/health` now advertises `protocol: 2`.
+2. All existing v1 `/api/chat`, `/api/runs/:runId/cancel`,
+   `/api/missions`, `/api/events`, and NPC endpoints retain their
+   previous behavior and payload shapes until the storage integration PR.
+3. v2 adds the `team.event` discriminant to `GatewayEvent`.
+   **No team events are published yet.** Legacy consumers must safely
+   ignore unknown event types; the existing React consumer already does.
+4. Before enabling real team events, the client will validate `team.event`
+   and replay its durable cursor from the SQLite event history. Legacy chat
+   `run.*` events and `EventEnvelope.id` remain separate from
+   `TeamEvent.cursor`.
+5. A stale external v1 client may still use unchanged v1 routes, but it must
+   not assume protocol 2 includes a functioning team API. Future behavioral
+   changes to Mission Board (revision-aware `If-Match`) require a coordinated
+   client/server update, explicit migration and regression tests.
+6. Protocol 2 does **not** mean saved JSON missions have moved to SQLite,
+   that a v2 team endpoint is available, or that a live AI model is connected.
+
+### Release freeze
+
+Independent reviewer: **Claude — Approved** (report on reviewed commit
+`9294d287`, with the product-owner default-participant decision recorded
+in documentation commit `7550bbe7`). The additive freeze changes are covered
+by automated v2 contract tests. Tag the merged contract commit once both
+architecture and contract PRs are merged.
 
 ## Claude's contract re-review (2026-11-05)
 
-The reviewer requested changes to PR #9 after demonstrating that, without `PRAGMA recursive_triggers=ON`, SQLite's `INSERT OR REPLACE` could silently overwrite an append-only team event. The revised proposal uses the corrected SQL schema and comprehensive SQLite invariant tests supplied with the review. This contract PR **still does not run database migration**.
+During technical review, Claude requested changes after demonstrating that, without `PRAGMA recursive_triggers=ON`, SQLite's `INSERT OR REPLACE` could silently overwrite an append-only team event. The revised proposal uses the corrected SQL schema and comprehensive SQLite invariant tests supplied with the review. This contract PR **still does not run database migration**.
 
 Important changes to implement and verify before any runtime orchestrator:
 - Enable and assert `foreign_keys=ON`, `recursive_triggers=ON`, and WAL on **each** SQLite connection; forbid `INSERT OR REPLACE` on team records.
@@ -88,7 +115,7 @@ interaction. A cancelled/failed run does not erase its mission or prior events.
 - Request changes beyond the limit yields a clear `limit_reached` outcome,
   not an unbounded cycle.
 
-`TEAM_RUN_TRANSITIONS` is the candidate transition table. The orchestrator
+`TEAM_RUN_TRANSITIONS` is the reviewed transition table. The orchestrator
 must enforce the table in the same transaction that updates the run and appends
 its event; no UI code can advance states on its own.
 
@@ -242,7 +269,7 @@ these boundaries, review workflows and budgets have working tests.
 6. The provider `done` chunk may expose an optional `model` name. Mock usage cost is **0 microdollars**; live pricing is separate provider-side accounting.
 7. A run is paused on restart **only if its executor was active**. A run awaiting commander review remains awaiting; a run already cancelling is settled as cancelled.
 
-This document records the amended candidate contract; Claude's re-review is required before freezing protocol v2 or enabling SQLite migrations or team execution.
+This document records the amended reviewed contract; Claude's re-review is required before freezing protocol v2 or enabling SQLite migrations or team execution.
 
 
 ## Claude's third technical review — additions (2026-11-05)
@@ -259,4 +286,4 @@ The existing `scripts/schema-invariants.test.cjs` test runner now exercises the 
 
 The GitHub CI workflow also uses current v5 checkout and setup-node actions.
 
-**Freeze remains pending:** Claude's final review, explicit `team.event` in `GatewayEvent`, `PROTOCOL_VERSION = 2`, and a reviewed protocol compatibility plan. Do not run migration or live providers from the candidate contract PR.
+**Contract freeze completed:** Claude's final review, explicit `team.event` in `GatewayEvent`, `PROTOCOL_VERSION = 2`, and a reviewed protocol compatibility plan. Do not run migration or live providers from the reviewed contract PR.

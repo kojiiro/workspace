@@ -1,11 +1,10 @@
 import { z } from "zod";
 
 /**
- * Candidate contract for Prototype 0.4. This module is exported for testing
- * and review only: the active v1 gateway does not execute team missions.
- * Freeze the contract and bump PROTOCOL_VERSION only after Claude approves.
+ * Prototype 0.4 protocol v2 team contract, approved after independent review.
+ * Shared validation/types only: real team runs, SQLite migration and provider
+ * integrations must still be implemented and reviewed in separate PRs.
  */
-export const TEAM_CONTRACT_DRAFT_VERSION = 2;
 const uuid = z.uuid();
 const npcId = z.string().regex(/^[a-z0-9-]{1,48}$/);
 const iso = z.iso.datetime();
@@ -253,3 +252,4 @@ export const teamEventNoticeSchema=z.object({
   type:z.literal("team.event"),
   missionId:uuid,teamRunId:uuid,cursor:z.number().int().positive()
 }).strict();
+export type TeamEventNotice=z.infer<typeof teamEventNoticeSchema>;
