@@ -29,6 +29,25 @@ which changes warrant a `PROTOCOL_VERSION` bump to 2. Existing v1 chat and
 Mission Board APIs remain functional until the storage PR implements a controlled
 migration and client updates.
 
+## Claude's contract re-review (2026-11-05)
+
+The reviewer requested changes to PR #9 after demonstrating that, without `PRAGMA recursive_triggers=ON`, SQLite's `INSERT OR REPLACE` could silently overwrite an append-only team event. The revised proposal uses the corrected SQL schema and comprehensive SQLite invariant tests supplied with the review. This contract PR **still does not run database migration**.
+
+Important changes to implement and verify before any runtime orchestrator:
+- Enable and assert `foreign_keys=ON`, `recursive_triggers=ON`, and WAL on **each** SQLite connection; forbid `INSERT OR REPLACE` on team records.
+- Derive the active run from the unique run index: remove `missions.active_run_id`.
+- Guard run-state transitions and versions with a seeded transition table and SQL triggers; block deleting active missions and deleting individual events or runs.
+- Constrain event/run ownership, event kinds, foreign keys, step attempts, and same-run parent linkage. Add a global durable event cursor.
+- Track `endReason`, `unreviewed`, `commander_decision`, both peer and commander revision rounds (max 2 each), and active execution time separate from paused or commander-review time.
+- Model outputs **strip unknown fields** after validation; client requests remain **strict**. Route revision requests to approved participants only.
+- Store integer `costMicros`, map existing provider token usage to the team event, and allow optional `model` on ChatProvider's `done` chunk (additive).
+- For startup recovery: pause only `queued/planning/working/reviewing/revising`; leave already-paused and awaiting-review runs untouched; settle `cancelling` to `cancelled`.
+- Import legacy JSON only after an **fsynced, re-read and digest-verified backup**; migrate atomically with a marker and verify canonical records; never auto-reimport if the source JSON later changes.
+- Preserve a future SQLite backup using `db.backup()` or `VACUUM INTO`, not a direct live file copy.
+- **Product-owner decision still to confirm:** default participants for imported missions are John (Gemini) and Kyle (Claude), with Hal (GPT) as lead. This is a proposal and no migration runs in this PR.
+
+The database test runner in `scripts/schema-invariants.test.cjs` is an adaptation of Claude's supplied `better-sqlite3` fixture to Node's built-in SQLite (test-only), allowing it to run automatically on Windows and Ubuntu without installing a native dependency. The production storage implementation will use a reviewed `better-sqlite3` dependency later.
+
 ## 1. Records and roles
 
 Three different entity lifecycles MUST stay distinct:
@@ -211,3 +230,16 @@ persisted team events.
 
 **Frozen contract is a prerequisite:** no live GPT/Gemini/Claude adapters until
 these boundaries, review workflows and budgets have working tests.
+
+
+## Contract amendments relative to the first draft
+
+1. Team runs have nullable `pausedFrom`, `endReason`, `unreviewed`, `activeExecutionMs`, and `completedAt`. Execution timeout excludes review and pause time; the runtime maintains elapsed active time transactionally.
+2. The sum of `maxRevisionRounds` (peer, at most 2) and `maxCommanderRevisionRounds` (commander, at most 2) determines the allowed total round index (maximum 4).
+3. A `request_revision` model review must contain a non-empty `revisions` array of {participantNpcId, instruction}. The orchestrator rejects targets outside the immutable participant list.
+4. The commander decision includes `expectedRunVersion`, `acknowledgeUnreviewed`, and notes (required on Request changes); stale decisions reject. Client request bodies remain strict.
+5. Team event outputs include `commander_decision` and `costMicros`; individual team steps, attempts, and synthesis outputs have independent schemas.
+6. The provider `done` chunk may expose an optional `model` name. Mock usage cost is **0 microdollars**; live pricing is separate provider-side accounting.
+7. A run is paused on restart **only if its executor was active**. A run awaiting commander review remains awaiting; a run already cancelling is settled as cancelled.
+
+This document records the amended candidate contract; Claude's re-review is required before freezing protocol v2 or enabling SQLite migrations or team execution.

@@ -163,7 +163,7 @@ export interface ChatInput {
 
 export type ChatChunk =
   | { type: "delta"; text: string }
-  | { type: "done"; usage: Usage };
+  | { type: "done"; usage: Usage; model?: string };
 
 export interface ChatProvider {
   readonly id: string;
