@@ -139,7 +139,7 @@ CREATE TRIGGER team_events_parent_same_run BEFORE INSERT ON team_events
   BEGIN SELECT RAISE(ABORT,'parent event must belong to the same run'); END;
 
 
-// Claude's PR #9 third-review additions: preserve migration receipts,
+-- Claude's PR #9 third-review additions: preserve migration receipts,
 // canonical participant membership and same-step attempt attribution.
 CREATE TABLE mission_participants (
   mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
