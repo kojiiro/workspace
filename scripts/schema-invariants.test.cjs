@@ -111,6 +111,7 @@ const full=()=>{const db=mk();mission(db);run(db);step(db);attempt(db);ev(db,1);
  expect("wrong-state resume blocked",true,()=>db.prepare("UPDATE team_runs SET state='working',paused_from=NULL,version=version+1 WHERE id=?").run(R));
  expect("correct-state resume allowed",false,()=>db.prepare("UPDATE team_runs SET state='reviewing',paused_from=NULL,version=version+1 WHERE id=?").run(R));
  expect("paused_from outside pause rejected",true,()=>db.prepare("UPDATE team_runs SET paused_from='working',version=version+1 WHERE id=?").run(R));
+ db.prepare("UPDATE team_runs SET state='cancelling',version=version+1 WHERE id=?").run(R);
  expect("terminal without reason/time rejected",true,()=>db.prepare("UPDATE team_runs SET state='cancelled',version=version+1 WHERE id=?").run(R));
  db.prepare("UPDATE team_runs SET state='cancelled',version=version+1,completed_at=?,end_reason='commander_rejected' WHERE id=?").run(N,R);
  expect("terminal runs immutable",true,()=>db.prepare("UPDATE team_runs SET state='working',version=version+1 WHERE id=?").run(R));
