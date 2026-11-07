@@ -1,5 +1,8 @@
--- Prototype 0.4 contract proposal. Supplied by Claude following PR #9 review.
--- DDL IS NOT EXECUTED BY THE RUNNING APPLICATION.
+-- Prototype 0.4 team-mission schema (user_version 2).
+-- Applied by the gateway storage layer (packages/gateway/src/storage) inside ONE
+-- migration transaction. This file is the source of truth: run
+-- "npm run schema:sync" to regenerate packages/gateway/src/storage/schema.generated.ts,
+-- and a test fails if the two ever differ.
 -- REQUIRED on EVERY SQLite connection, before any statement:
 -- PRAGMA foreign_keys = ON; assert value == 1 at startup.
 -- PRAGMA recursive_triggers = ON; assert value == 1 at startup.
