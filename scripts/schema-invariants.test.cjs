@@ -1,13 +1,9 @@
 // Adapted from Claude's supplied schema-invariants.test.cjs for repo-relative paths.
-// Uses Node's built-in SQLite runtime ONLY for contract invariant testing,
-// not as the production adapter (planned production DB: better-sqlite3).
-const {DatabaseSync}=require("node:sqlite");
+// Runs against the production adapter (better-sqlite3), same engine as the gateway.
+const Database=require("better-sqlite3");
 const fs=require("node:fs");
 const path=require("node:path");
 const {pathToFileURL}=require("node:url");
-const Database=class extends DatabaseSync {
-  pragma(s){this.exec("PRAGMA "+s);}
-};
 (async()=>{
 const {TEAM_RUN_TRANSITIONS}=await import(
   pathToFileURL(path.resolve(__dirname,"../packages/shared/dist/index.js")).href
