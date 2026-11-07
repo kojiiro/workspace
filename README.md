@@ -65,3 +65,13 @@ The `feat/mission-control-local-board` branch adds a Mission Board. Missions are
 
 ## Prototype 0.4 contract (protocol v2)
 The reviewed team-mission contract is documented in `docs/TEAM-CONTRACT-04.md`; it adds the `team.event` event type and schema definitions without enabling AI team execution or changing the existing chat/Mission Board behavior. Data migration to SQLite and mock team collaboration will be implemented in later reviewed changes. Hal (GPT) leads, with John (Gemini) and Kyle (Claude) as the approved default teammates for imported missions.
+
+## Prototype 0.4 Storage PR A: SQLite mission database
+
+Missions now live in `data/headquarters.sqlite` (gitignored, along with its `-wal`/`-shm` files and `data/backups/`). If you have an existing `data/missions.json`, the first start copies it to `data/backups/` (verified byte-for-byte with SHA-256), imports it in a single all-or-nothing transaction, and only then renames it to `missions.json.migrated`. Migrated missions get Hal as lead and John and Kyle as default participants. Nothing calls an AI model.
+
+- Back up the live database any time (safe while the gateway runs): `npm run build` then `npm run db:backup`.
+- Stop the gateway with Ctrl+C so SQLite can close cleanly.
+- Windows: `better-sqlite3` ships its binaries inside the package and `.npmrc` keeps npm from trying to compile it, so no Visual Studio Build Tools are needed. `npm run check:native` confirms the install.
+- Move the data folder with `GLC_DATA_DIR=<folder>`.
+- Details, recovery steps and API changes: `docs/STORAGE-PR-A.md`.
