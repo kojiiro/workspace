@@ -15,7 +15,10 @@
     "dev": "npm run build -w @glc/shared && concurrently -k -n gateway,client -c cyan,green \"npm run dev -w @glc/gateway\" \"npm run dev -w @glc/client\"",
     "build": "npm run build -w @glc/shared && npm run build -w @glc/gateway && npm run build -w @glc/client",
     "check": "npm run build",
-    "test": "npm run build -w @glc/shared && npm run test -w @glc/gateway && node --experimental-sqlite scripts/schema-invariants.test.cjs"
+    "test": "npm run build -w @glc/shared && npm run test -w @glc/gateway && node scripts/schema-invariants.test.cjs",
+    "schema:sync": "node scripts/sync-schema.mjs",
+    "db:backup": "npm run db:backup -w @glc/gateway",
+    "check:native": "node scripts/check-native-install.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
