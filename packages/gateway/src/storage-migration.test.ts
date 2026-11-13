@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, stat, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -182,6 +183,36 @@ test("if archiving fails after a successful import, startup still works, the fil
     assert.equal((await second.repository.list()).length, 4, "no duplicates, new work kept");
     assert.equal(second.report.archivedTo, paths.legacyJsonPath + ".migrated");
     assert.equal(await exists(paths.legacyJsonPath), false);
+  } finally { second.close(); }
+}));
+
+test("JSON changed during migration is preserved rather than archived as imported", () => withDir(async paths => {
+  const original = envelope(threeLegacyMissions());
+  const changed = envelope([legacyMission({ title: "Changed while importing" })]);
+  await writeLegacyFile(paths, original);
+  // Deliberately emulate a legacy-file writer racing with the import
+  // transaction. SQLite imports the verified snapshot; newer JSON remains.
+  const first = await openStorage(paths, {
+    hooks: { beforeCommit: () => writeFileSync(paths.legacyJsonPath, changed) }
+  });
+  try {
+    assert.equal(first.report.status, "imported");
+    assert.equal(first.report.archivedTo, null);
+    assert.equal((await first.repository.list()).length, 3);
+    assert.equal(await readFile(paths.legacyJsonPath, "utf8"), changed);
+    assert.equal(await exists(paths.legacyJsonPath + ".migrated"), false);
+    assert.ok(first.report.warnings.some(w => /NOT imported/.test(w)));
+    const backups = await listDir(paths.backupDir);
+    assert.equal(backups.length, 1);
+    assert.equal(await readFile(join(paths.backupDir, backups[0]), "utf8"), original);
+  } finally { first.close(); }
+  // The next gateway must not re-import the changed source either.
+  const second = await openStorage(paths);
+  try {
+    assert.equal(second.report.status, "already-initialized");
+    assert.equal((await second.repository.list()).length, 3);
+    assert.equal(await readFile(paths.legacyJsonPath, "utf8"), changed);
+    assert.ok(second.report.warnings.some(w => /authoritative/.test(w)));
   } finally { second.close(); }
 }));
 

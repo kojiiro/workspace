@@ -285,6 +285,24 @@ async function inspectExisting(
 async function archiveLegacy(
   path: string, sha256: string, hooks: MigrationHooks, warn: (message: string) => void
 ): Promise<string | null> {
+  // The user (or another program) might have modified the legacy JSON after
+  // it was read for migration. Do NOT archive a newer, unimported version.
+  // This is a best-effort pre-rename check; it cannot make external writes
+  // atomic with a filesystem rename. Preserve changed files for reconciliation.
+  let latest: Buffer;
+  try {
+    latest = await readFile(path);
+  } catch (error) {
+    warn("Could not verify data/missions.json before archiving it. The file was left untouched; "
+      + "the SQLite import has already committed. Check the legacy file manually.");
+    return null;
+  }
+  if (sha256Hex(latest) !== sha256) {
+    warn("data/missions.json changed after the migration snapshot. Its newer contents were NOT imported "
+      + "into SQLite and the file was deliberately NOT archived. Keep this file and reconcile its "
+      + "contents with the database before removing it.");
+    return null;
+  }
   const candidates = [`${path}.migrated`, `${path}.${sha256.slice(0, 12)}.migrated`];
   const target = await (async () => {
     for (const candidate of candidates) if (!(await exists(candidate))) return candidate;
