@@ -1,8 +1,9 @@
 import { z } from "zod";
 
-// Protocol v2: additive team event notices. All existing v1 chat and mission
-// routes, event envelopes, request/response shapes, and error codes remain
-// unchanged until the reviewed SQLite storage migration introduces new routes.
+// Protocol v2: additive team event notices. Storage PR A (SQLite) adds
+// revision-aware Mission Board routes: Mission gains revision, leadNpcId and
+// participantNpcIds; PATCH/DELETE require If-Match; ErrorCode gains "conflict"
+// and "precondition_required". Chat routes and event envelopes are unchanged.
 export const PROTOCOL_VERSION = 2;
 
 export type NpcId = string;
@@ -39,20 +40,41 @@ export type MissionStatus = z.infer<typeof missionStatusSchema>;
 
 const missionTitleSchema = z.string().trim().min(1).max(120);
 const missionNotesSchema = z.string().trim().max(1000);
-const missionAssigneeSchema = z.string().regex(/^[a-z0-9-]{1,48}$/).nullable();
+const npcIdSchema = z.string().regex(/^[a-z0-9-]{1,48}$/);
+const missionAssigneeSchema = npcIdSchema.nullable();
+
+/** Owner-approved defaults: Hal leads; John (Gemini) and Kyle (Claude) participate. */
+export const DEFAULT_MISSION_LEAD_NPC_ID: NpcId = "hal";
+export const DEFAULT_MISSION_PARTICIPANT_NPC_IDS: readonly NpcId[] = Object.freeze(["john", "kyle"]);
+
+const missionParticipantsSchema = z.array(npcIdSchema).min(1).max(4).refine(
+  ids => new Set(ids).size === ids.length, "Duplicate participant"
+);
 
 export const createMissionSchema = z.object({
   title: missionTitleSchema,
   notes: missionNotesSchema.default(""),
-  assignedNpcId: missionAssigneeSchema.default(null)
-}).strict();
+  assignedNpcId: missionAssigneeSchema.default(null),
+  leadNpcId: npcIdSchema.optional(),
+  participantNpcIds: missionParticipantsSchema.optional()
+}).strict().refine(
+  value => !(value.leadNpcId && value.participantNpcIds?.includes(value.leadNpcId)),
+  { path: ["participantNpcIds"], message: "The mission lead cannot also be a participant" }
+);
 
 export const updateMissionSchema = z.object({
   title: missionTitleSchema.optional(),
   notes: missionNotesSchema.optional(),
   assignedNpcId: missionAssigneeSchema.optional(),
-  status: missionStatusSchema.optional()
-}).strict().refine(value => Object.keys(value).length > 0, "Specify at least one change");
+  status: missionStatusSchema.optional(),
+  leadNpcId: npcIdSchema.optional(),
+  participantNpcIds: missionParticipantsSchema.optional()
+}).strict()
+  .refine(value => Object.keys(value).length > 0, "Specify at least one change")
+  .refine(
+    value => !(value.leadNpcId && value.participantNpcIds?.includes(value.leadNpcId)),
+    { path: ["participantNpcIds"], message: "The mission lead cannot also be a participant" }
+  );
 
 export type CreateMissionRequest = z.infer<typeof createMissionSchema>;
 export type UpdateMissionRequest = z.infer<typeof updateMissionSchema>;
@@ -61,10 +83,22 @@ export interface Mission {
   id: string;
   title: string;
   notes: string;
+  /** Legacy v1 field. Advisory after migration; it does not select participants. */
   assignedNpcId: NpcId | null;
+  leadNpcId: NpcId;
+  participantNpcIds: NpcId[];
   status: MissionStatus;
+  /** Content revision. Send it back as If-Match on PATCH and DELETE. */
+  revision: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Body of a 409 response: a typed error plus the latest mission when it still exists. */
+export interface MissionConflictBody {
+  error: GatewayError;
+  reason: "stale_revision" | "active_run";
+  current: Mission;
 }
 
 /** Validates every persisted mission before it enters the in-memory store. */
@@ -103,6 +137,8 @@ export type ErrorCode =
   | "quota_exceeded"
   | "timeout"
   | "cancelled"
+  | "conflict"
+  | "precondition_required"
   | "internal";
 
 export interface GatewayError {

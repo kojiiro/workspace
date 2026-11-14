@@ -70,3 +70,13 @@
 .mission-empty{padding:22px 12px;background:#12302c;border:1px dashed #487663;text-align:center;border-radius:9px;display:flex;flex-direction:column;gap:5px;font-size:11px;color:#9fcbb5}
 .mission-empty strong{color:#dafae8;font-size:13px}
 @media(max-width:650px){.mission-panel{inset:7px;width:auto}.mission-content{padding:12px}.mission-header{padding:12px}.mission-stats>div{padding:9px}}
+
+/* Mission revision conflict: keep the user's pending status visible until reload. */
+.mission-conflict{border:1px solid #c5a154;background:#42361e;color:#ffefcb;
+ border-radius:9px;padding:14px;margin:12px 0;display:flex;flex-direction:column;gap:7px}
+.mission-conflict strong{font-size:13px}
+.mission-conflict p{font-size:11px;line-height:1.5;margin:0;color:#ffe6b3}
+.mission-conflict button{align-self:flex-start;background:#f8df93;color:#32260f;
+ border:0;border-radius:7px;padding:9px 12px;font-size:11px;font-weight:700}
+.mission-conflict button:disabled{opacity:.5}
+.mission-conflict small{font-size:10px;color:#f2d39a}

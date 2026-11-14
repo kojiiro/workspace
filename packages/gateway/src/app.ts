@@ -1,10 +1,12 @@
 import Fastify from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { PROTOCOL_VERSION, sendChatRequestSchema, createMissionSchema, updateMissionSchema } from "@glc/shared";
-import type { ChatMessage, EventEnvelope, GatewayError, GatewayEvent, ChatProvider } from "@glc/shared";
+import type { ChatMessage, EventEnvelope, GatewayError, GatewayEvent, ChatProvider, Mission, MissionConflictBody } from "@glc/shared";
 import { MockChatProvider } from "./adapters/mock.js";
 import { createDefaultNpcRegistry } from "./registry.js";
-import { MissionStore } from "./mission-store.js";
+import { StorageError, isBusyError, createInMemoryMissionRepository } from "./storage/index.js";
+import type { MissionRepository } from "./storage/index.js";
 
 const allowedHosts = new Set([
   "127.0.0.1:3001", "localhost:3001",
@@ -24,11 +26,14 @@ function fail(code: GatewayError["code"], message: string, retryable = false): {
   return { error: { code, message, retryable } };
 }
 
-export function createGateway(provider: ChatProvider = new MockChatProvider(), options: { logger?: boolean; missionStore?: MissionStore } = {}) {
+export function createGateway(provider: ChatProvider = new MockChatProvider(), options: { logger?: boolean; missionRepository?: MissionRepository } = {}) {
   // Production logs errors (including port conflicts), tests stay silent by default.
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 12_000 });
   const registry = createDefaultNpcRegistry(provider);
-  const missionStore = options.missionStore ?? new MissionStore();
+  // The caller owns (and closes) a repository it passes in. A repository created here is closed here.
+  const repository = options.missionRepository ?? createInMemoryMissionRepository();
+  const ownsRepository = !options.missionRepository;
+  app.addHook("onClose", async () => { if (ownsRepository) repository.close(); });
   const conversations = new Map<string, ChatMessage[]>();
   const owners = new Map<string, string>();
   const activeConversations = new Set<string>();
@@ -61,68 +66,130 @@ export function createGateway(provider: ChatProvider = new MockChatProvider(), o
   app.get("/api/npcs", async () => registry.list());
 
   // Mission Board: records and assignment metadata only. No AI is called here.
+  // PATCH and DELETE require If-Match: "<revision>" (428 missing, 400 malformed, 409 stale).
+  const missionIdPattern = /^[0-9a-f-]{36}$/i;
+
+  function sendMission(reply: FastifyReply, status: number, mission: Mission) {
+    return reply.code(status).header("ETag", `"${mission.revision}"`)
+      .header("Cache-Control", "no-store").send(mission);
+  }
+
+  function sendConflict(reply: FastifyReply, reason: MissionConflictBody["reason"], current: Mission) {
+    const message = reason === "active_run"
+      ? "This mission has an active team run and cannot be deleted."
+      : "This mission was changed elsewhere. Reload it before saving again.";
+    const body: MissionConflictBody = { error: { code: "conflict", message, retryable: false }, reason, current };
+    return reply.code(409).header("ETag", `"${current.revision}"`).header("Cache-Control", "no-store").send(body);
+  }
+
+  function readIfMatch(request: FastifyRequest, reply: FastifyReply): number | null {
+    const header = request.headers["if-match"];
+    if (header === undefined) {
+      reply.code(428).send(fail("precondition_required",
+        "Send If-Match with the mission revision you last loaded, for example If-Match: \"3\"."));
+      return null;
+    }
+    const match = typeof header === "string" ? /^"([1-9][0-9]{0,8})"$/.exec(header.trim()) : null;
+    if (!match) {
+      reply.code(400).send(fail("invalid_request", "If-Match must be a single quoted revision number, for example \"3\"."));
+      return null;
+    }
+    return Number(match[1]);
+  }
+
+  function unknownNpc(...ids: Array<string | null | undefined>): boolean {
+    return ids.some(id => id !== null && id !== undefined && !registry.get(id));
+  }
+
+  function storageFailure(reply: FastifyReply, error: unknown, logMessage: string, userMessage: string) {
+    if (error instanceof StorageError && error.code === "invalid_change") {
+      return reply.code(400).send(fail("invalid_request", error.message));
+    }
+    if (isBusyError(error)) {
+      app.log.warn({ err: error }, logMessage);
+      return reply.code(503).send(fail("unavailable", "The mission database is busy. Please try again.", true));
+    }
+    app.log.error({ err: error }, logMessage);
+    return reply.code(500).send(fail("internal", userMessage));
+  }
+
   app.get("/api/missions", async (_request, reply) => {
     try {
-      return await missionStore.list();
+      return await repository.list();
     } catch (error) {
-      app.log.error({ err: error }, "Could not read local missions");
-      return reply.code(500).send(fail("internal", "Local mission storage is unavailable."));
+      return storageFailure(reply, error, "Could not read local missions", "Local mission storage is unavailable.");
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/missions/:id", async (request, reply) => {
+    if (!missionIdPattern.test(request.params.id)) {
+      return reply.code(400).send(fail("invalid_request", "Invalid mission ID."));
+    }
+    try {
+      const mission = await repository.get(request.params.id);
+      if (!mission) return reply.code(404).send(fail("unavailable", "Mission not found."));
+      return sendMission(reply, 200, mission);
+    } catch (error) {
+      return storageFailure(reply, error, "Could not read local mission", "Local mission storage is unavailable.");
     }
   });
 
   app.post("/api/missions", async (request, reply) => {
     const parsed = createMissionSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send(fail("invalid_request", "Mission title, notes, or assignee is invalid."));
+      return reply.code(400).send(fail("invalid_request", "Mission title, notes, assignee, lead, or participants are invalid."));
     }
-    if (parsed.data.assignedNpcId !== null && !registry.get(parsed.data.assignedNpcId)) {
-      return reply.code(400).send(fail("invalid_request", "Choose a registered Corps member."));
+    const { assignedNpcId, leadNpcId, participantNpcIds } = parsed.data;
+    if (unknownNpc(assignedNpcId, leadNpcId, ...(participantNpcIds ?? []))) {
+      return reply.code(400).send(fail("invalid_request", "Choose registered Corps members."));
     }
     try {
-      const mission = await missionStore.create(parsed.data);
-      return reply.code(201).send(mission);
+      const mission = await repository.create(parsed.data);
+      reply.header("Location", "/api/missions/" + mission.id);
+      return sendMission(reply, 201, mission);
     } catch (error) {
-      app.log.error({ err: error }, "Could not save local mission");
-      return reply.code(500).send(fail("internal", "Mission could not be saved locally."));
+      return storageFailure(reply, error, "Could not save local mission", "Mission could not be saved locally.");
     }
   });
 
   app.patch<{ Params: { id: string } }>("/api/missions/:id", async (request, reply) => {
-    if (!/^[0-9a-f-]{36}$/i.test(request.params.id)) {
+    if (!missionIdPattern.test(request.params.id)) {
       return reply.code(400).send(fail("invalid_request", "Invalid mission ID."));
     }
+    const expectedRevision = readIfMatch(request, reply);
+    if (expectedRevision === null) return reply;
     const parsed = updateMissionSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send(fail("invalid_request", "Mission changes are invalid."));
     }
-    if (parsed.data.assignedNpcId !== undefined && parsed.data.assignedNpcId !== null &&
-        !registry.get(parsed.data.assignedNpcId)) {
-      return reply.code(400).send(fail("invalid_request", "Choose a registered Corps member."));
+    if (unknownNpc(parsed.data.assignedNpcId, parsed.data.leadNpcId, ...(parsed.data.participantNpcIds ?? []))) {
+      return reply.code(400).send(fail("invalid_request", "Choose registered Corps members."));
     }
     try {
-      const updated = await missionStore.update(request.params.id, parsed.data);
-      if (!updated) return reply.code(404).send(fail("unavailable", "Mission not found."));
-      return updated;
+      const outcome = await repository.update(request.params.id, expectedRevision, parsed.data);
+      if (outcome.ok) return sendMission(reply, 200, outcome.mission);
+      if (outcome.reason === "not_found") return reply.code(404).send(fail("unavailable", "Mission not found."));
+      return sendConflict(reply, "stale_revision", outcome.current);
     } catch (error) {
-      app.log.error({ err: error }, "Could not update local mission");
-      return reply.code(500).send(fail("internal", "Mission could not be updated locally."));
+      return storageFailure(reply, error, "Could not update local mission", "Mission could not be updated locally.");
     }
   });
 
   app.delete<{ Params: { id: string } }>("/api/missions/:id", async (request, reply) => {
-    if (!/^[0-9a-f-]{36}$/i.test(request.params.id)) {
+    if (!missionIdPattern.test(request.params.id)) {
       return reply.code(400).send(fail("invalid_request", "Invalid mission ID."));
     }
+    const expectedRevision = readIfMatch(request, reply);
+    if (expectedRevision === null) return reply;
     try {
-      const removed = await missionStore.delete(request.params.id);
-      if (!removed) return reply.code(404).send(fail("unavailable", "Mission not found."));
-      return reply.code(204).send();
+      const outcome = await repository.delete(request.params.id, expectedRevision);
+      if (outcome.ok) return reply.code(204).send();
+      if (outcome.reason === "not_found") return reply.code(404).send(fail("unavailable", "Mission not found."));
+      return sendConflict(reply, outcome.reason, outcome.current);
     } catch (error) {
-      app.log.error({ err: error }, "Could not delete local mission");
-      return reply.code(500).send(fail("internal", "Mission could not be removed locally."));
+      return storageFailure(reply, error, "Could not delete local mission", "Mission could not be removed locally.");
     }
   });
-
 
   app.get<{ Params: { id: string } }>("/api/conversations/:id/messages", async (request, reply) => {
     if (!/^[0-9a-f-]{36}$/i.test(request.params.id)) {

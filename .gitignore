@@ -14,3 +14,7 @@ coverage/
 
 # Local Mission Board data and atomic temporary files (do not commit private projects)
 data/
+# SQLite mission database, its WAL/SHM artifacts and backups (never commit private missions)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
